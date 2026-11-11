@@ -1,0 +1,2692 @@
+import streamlit as st
+import sqlite3
+import pandas as pd
+from datetime import datetime, timedelta
+import os
+import re
+import html
+import time
+import hmac
+import hashlib
+import secrets
+import base64
+
+st.set_page_config(
+    page_title="نظام إدارة الأسطول - شركة بروج العالم",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# 🎨 تصميم CSS المخصص لتوسيط المحتوى وأزرار عصرية ومنسقة تماماً
+st.markdown("""
+    <style>
+        body, [data-testid="stAppViewContainer"], [data-testid="stSidebar"] {
+            direction: rtl;
+            text-align: right;
+            font-family: 'Cairo', sans-serif;
+            background-color: #f0f4f8;
+            font-size: 17px !important;
+        }
+        
+        h1, h2, h3, h4, p, span, label, .stMarkdown {
+            font-size: 18px !important;
+        }
+        
+        .stSelectbox, .stTextInput, .stForm, div[data-baseweb="select"] {
+            direction: rtl;
+            text-align: right;
+        }
+        
+        div[data-baseweb="select"] span {
+            direction: ltr !important;
+            unicode-bidi: embed !important;
+            text-align: right !important;
+        }
+        
+        div[data-baseweb="input"] input, div[data-baseweb="base-input"] input, div[data-baseweb="textarea"] textarea {
+            background-color: #ffffff !important;
+            color: #2c3e50 !important;
+            font-weight: bold !important;
+            font-size: 16px !important;
+            border-radius: 10px !important;
+            border: 1px solid #cbd5e1 !important;
+        }
+        
+        .main-header-centered {
+            background: linear-gradient(135deg, #0284c7 0%, #0369a1 50%, #1e3a8a 100%);
+            padding: 24px;
+            border-radius: 16px;
+            color: white;
+            box-shadow: 0 10px 25px rgba(2, 132, 199, 0.2);
+            margin-bottom: 25px;
+            border-bottom: 5px solid #fbbf24;
+            text-align: center;
+        }
+        .main-header-centered h1 {
+            color: #ffffff;
+            font-size: 26px !important;
+            margin: 0;
+            font-weight: 800;
+        }
+        .main-header-centered p {
+            color: #fef08a;
+            font-size: 15px !important;
+            margin: 8px 0 0 0;
+            font-weight: 700;
+        }
+
+        .circular-logo-sidebar {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 4px solid #fbbf24;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+            display: block;
+            margin: 10px auto 15px auto;
+        }
+
+        [data-testid="stSidebar"] div.row-widget.stRadio > div {
+            width: 100%;
+        }
+        
+        [data-testid="stSidebar"] .stRadio div[role="radiogroup"] {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            width: 100%;
+        }
+
+        [data-testid="stSidebar"] .stRadio label {
+            background-color: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+            padding: 10px 14px !important;
+            cursor: pointer;
+            width: 100% !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: flex-start !important;
+            border-radius: 10px;
+            transition: all 0.25s ease;
+        }
+
+        [data-testid="stSidebar"] .stRadio label:hover {
+            background-color: rgba(2, 132, 199, 0.12) !important;
+        }
+
+        [data-testid="stSidebar"] .stRadio div[role="radiogroup"] label > div:first-child {
+            margin-left: 12px !important;
+            margin-right: 0px !important;
+        }
+
+        [data-testid="stSidebar"] .stRadio label p {
+            font-size: 16.5px !important;
+            font-weight: bold !important;
+            color: #0369a1 !important;
+            margin: 0 !important;
+            text-align: right !important;
+        }
+
+        .stButton > button {
+            border-radius: 10px !important;
+            font-weight: bold !important;
+            transition: all 0.2s ease-in-out;
+        }
+        .stButton > button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+    </style>
+""", unsafe_allow_html=True)
+
+# دالة لتحويل الصورة إلى Base64
+def get_image_base64(path):
+    if path and isinstance(path, str) and os.path.exists(path):
+        with open(path, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    return ""
+
+logo_b64 = get_image_base64("rtrgrfwerfr3g.jpeg")
+
+
+# ================= دوال مساعدة (أمان وسلامة بيانات) =================
+def esc(v):
+    return html.escape("" if v is None else str(v))
+
+PBKDF2_ITERS = 200_000
+
+def hash_password(password):
+    salt = secrets.token_hex(16)
+    h = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), PBKDF2_ITERS).hex()
+    return f"pbkdf2${PBKDF2_ITERS}${salt}${h}"
+
+def verify_password(password, stored):
+    if not stored or not str(stored).startswith("pbkdf2$"):
+        return False
+    try:
+        _, iters, salt, h = str(stored).split("$")
+        calc = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), int(iters)).hex()
+        return hmac.compare_digest(calc, h)
+    except Exception:
+        return False
+
+def save_upload(folder, prefix, uploaded):
+    orig = os.path.basename(str(uploaded.name))
+    stem, ext = os.path.splitext(orig)
+    ext = ext.lower() if ext.lower() in (".pdf", ".png", ".jpg", ".jpeg") else ""
+    clean = lambda s: (re.sub(r"[^\w\-]+", "_", str(s), flags=re.UNICODE).strip("_")[:40] or "file")
+    name = f"{clean(prefix)}_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}_{clean(stem)}{ext}"
+    path = os.path.join(folder, name)
+    with open(path, "wb") as f:
+        f.write(uploaded.getbuffer())
+    return path
+
+# تهيئة قاعدة البيانات والجداول الأساسية
+def init_db():
+    conn = sqlite3.connect("fleet.db", timeout=30.0)
+    cur = conn.cursor()
+    cur.execute("CREATE TABLE IF NOT EXISTS VehicleTypes (TypeName TEXT PRIMARY KEY)")
+    cur.execute("CREATE TABLE IF NOT EXISTS Workshops (WorkshopName TEXT PRIMARY KEY)")
+    cur.execute("CREATE TABLE IF NOT EXISTS MaintenanceTypes (JobTypeName TEXT PRIMARY KEY)")
+    
+    cur.execute("CREATE TABLE IF NOT EXISTS HotelsList (HotelName TEXT PRIMARY KEY)")
+    cur.execute("CREATE TABLE IF NOT EXISTS StationsList (StationName TEXT PRIMARY KEY)")
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS Buses (
+            BusID TEXT PRIMARY KEY, VehicleType TEXT, Model TEXT, OperationNumber TEXT, 
+            OdoCurrent REAL, OdoLast REAL, KmRemaining REAL, LastDate TEXT, NextDate TEXT, 
+            MaintType TEXT, InspectionDate TEXT, DaysToInspection INTEGER, DaysToMaintenance INTEGER, AlertStatus TEXT
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS Logs (
+            LogID INTEGER PRIMARY KEY AUTOINCREMENT, BusID TEXT, DoneDate TEXT, 
+            JobType TEXT, Cost REAL, Workshop TEXT, InvoiceStatus TEXT, InvoiceFile TEXT, Notes TEXT
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS Users (
+            Username TEXT PRIMARY KEY,
+            Password TEXT,
+            FullName TEXT
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS InspectionReports (
+            ReportID INTEGER PRIMARY KEY AUTOINCREMENT,
+            BusID TEXT,
+            InspectionDate TEXT,
+            ExpiryDate TEXT,
+            ResultStatus TEXT,
+            ReportFile TEXT,
+            Notes TEXT
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS HotelContracts (
+            ContractID INTEGER PRIMARY KEY AUTOINCREMENT,
+            HotelName TEXT,
+            StationName TEXT,
+            StartDate TEXT,
+            EndDate TEXT,
+            ContractCost REAL,
+            ContractFile TEXT,
+            Notes TEXT
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS SmartParkingInvoices (
+            ParkingID INTEGER PRIMARY KEY AUTOINCREMENT,
+            HotelName TEXT,
+            StationName TEXT,
+            ParkingDate TEXT,
+            Cost REAL,
+            InvoiceFile TEXT,
+            Notes TEXT
+        )
+    """)
+    
+    columns_to_add_buses = [
+        ("BatteryStatus", "TEXT"),
+        ("WarrantyExpiry", "TEXT"),
+        ("BatteryInstallDate", "TEXT"),
+        ("OilValidity", "INTEGER"),
+        ("BatteryWarrantyFile", "TEXT")
+    ]
+    for col_name, col_type in columns_to_add_buses:
+        try:
+            cur.execute(f"ALTER TABLE Buses ADD COLUMN {col_name} {col_type}")
+        except sqlite3.OperationalError:
+            pass
+
+    for col_name, col_type in [("HotelName", "TEXT"), ("StationName", "TEXT")]:
+        try:
+            cur.execute(f"ALTER TABLE HotelContracts ADD COLUMN {col_name} {col_type}")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cur.execute(f"ALTER TABLE SmartParkingInvoices ADD COLUMN {col_name} {col_type}")
+        except sqlite3.OperationalError:
+            pass
+
+    try:
+        cur.execute("ALTER TABLE Logs ADD COLUMN Notes TEXT")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cur.execute("ALTER TABLE Users ADD COLUMN FullName TEXT")
+    except sqlite3.OperationalError:
+        pass
+    
+    cur.execute("SELECT 1 FROM Users WHERE Username = 'admin'")
+    if cur.fetchone() is None:
+        cur.execute("INSERT INTO Users (Username, Password, FullName) VALUES (?, ?, ?)", ("admin", hash_password("1234"), "مدير النظام"))
+
+    cur.execute("SELECT Username, Password FROM Users")
+    for _u, _p in cur.fetchall():
+        if not str(_p or "").startswith("pbkdf2$"):
+            cur.execute("UPDATE Users SET Password = ? WHERE Username = ?", (hash_password(str(_p or "").strip()), _u))
+
+    cur.execute("SELECT COUNT(*) FROM VehicleTypes")
+    if cur.fetchone()[0] == 0:
+        cur.executemany("INSERT OR IGNORE INTO VehicleTypes (TypeName) VALUES (?)", [("حافلة كبيرة",), ("سيارة خاصة",), ("ميني باص",)])
+        
+    cur.execute("SELECT COUNT(*) FROM Workshops")
+    if cur.fetchone()[0] == 0:
+        cur.executemany("INSERT OR IGNORE INTO Workshops (WorkshopName) VALUES (?)", [("مركز التجارة الوطنية",), ("ورشة الصيانة السريعة",), ("الورشة المركزية للأسطول",)])
+
+    cur.execute("SELECT COUNT(*) FROM MaintenanceTypes")
+    if cur.fetchone()[0] == 0:
+        cur.executemany("INSERT OR IGNORE INTO MaintenanceTypes (JobTypeName) VALUES (?)", [
+            ("صيانة دورية",), ("صيانة زيت وقياسات",), ("تغيير إطارات",), 
+            ("صيانة ميكانيكية كبيرة",), ("إصلاح نظام الفرامل",), ("فحص شامل",), ("تكييف وتبريد",)
+        ])
+
+    initial_hotels = [
+        ("فندق تاج بارك",), ("فندق أمجاد الضيافة",), ("فندق سرايا الضيافة",), 
+        ("فندق رياض الضيافة",), ("فندق ديار الضيافة",), ("فندق البستان الماسي",), 
+        ("فندق زهرة اللافندر",), ("فندق سما الضيافة",)
+    ]
+    cur.executemany("INSERT OR IGNORE INTO HotelsList (HotelName) VALUES (?)", initial_hotels)
+
+    initial_stations = [
+        ("محطة جرول",), ("محطة جبل الكعبة الغربي",), ("محطة محور باب علي",)
+    ]
+    cur.executemany("INSERT OR IGNORE INTO StationsList (StationName) VALUES (?)", initial_stations)
+        
+    conn.commit()
+    conn.close()
+
+init_db()
+os.makedirs("uploaded_invoices", exist_ok=True)
+os.makedirs("battery_warranties", exist_ok=True)
+os.makedirs("inspection_reports", exist_ok=True)
+os.makedirs("hotel_contracts", exist_ok=True)
+os.makedirs("parking_invoices", exist_ok=True)
+
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
+if "username" not in st.session_state:
+    st.session_state["username"] = ""
+if "login_user" not in st.session_state:
+    st.session_state["login_user"] = ""
+
+if not st.session_state["logged_in"]:
+    st.markdown("""
+        <style>
+            @keyframes vibrantGlow {
+                0% { box-shadow: 0 0 20px rgba(14, 165, 233, 0.4); }
+                50% { box-shadow: 0 0 40px rgba(245, 158, 11, 0.6); }
+                100% { box-shadow: 0 0 20px rgba(14, 165, 233, 0.4); }
+            }
+            @keyframes floatAnim {
+                0% { transform: translateY(0px); }
+                50% { transform: translateY(-6px); }
+                100% { transform: translateY(0px); }
+            }
+            .vibrant-login-box {
+                background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+                padding: 45px 35px;
+                border-radius: 24px;
+                box-shadow: 0 25px 50px rgba(15, 23, 42, 0.12);
+                border: 2px solid #e0f2fe;
+                max-width: 480px;
+                margin: 20px auto;
+                direction: rtl;
+                text-align: right;
+                animation: floatAnim 4s ease-in-out infinite;
+            }
+            .vibrant-title {
+                color: #0369a1;
+                text-align: center;
+                font-weight: 900;
+                font-size: 28px !important;
+                margin-bottom: 6px;
+                letter-spacing: 0.5px;
+            }
+            .vibrant-subtitle {
+                color: #d97706;
+                text-align: center;
+                font-size: 15px !important;
+                margin-bottom: 30px;
+                font-weight: 700;
+            }
+            .vibrant-logo-img {
+                width: 135px;
+                height: 135px;
+                border-radius: 50%;
+                object-fit: cover;
+                border: 4px solid #f59e0b;
+                animation: vibrantGlow 3s infinite ease-in-out;
+                display: block;
+                margin: 0 auto;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    col_l1, col_l2, col_l3 = st.columns([1, 1.4, 1])
+    
+    with col_l2:
+        if logo_b64:
+            st.markdown(f"""
+                <div style="text-align: center; margin-bottom: 22px;">
+                    <img src="data:image/jpeg;base64,{logo_b64}" class="vibrant-logo-img">
+                </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("""
+            <div class="vibrant-login-box">
+                <div class="vibrant-title">🚍 بروج العالم للنقل</div>
+                <div class="vibrant-subtitle">✨ بوابة النظام الذكي لإدارة الأسطول ✨</div>
+        """, unsafe_allow_html=True)
+        
+        with st.form("login_form"):
+            username_input = st.text_input("اسم المستخدم (Username)", placeholder="أدخل اسم المستخدم هنا...")
+            password_input = st.text_input("كلمة المرور (Password)", type="password", placeholder="أدخل كلمة المرور هنا...")
+            st.markdown("<br>", unsafe_allow_html=True)
+            submit_login = st.form_submit_button("تسجيل الدخول", type="primary", use_container_width=True)
+            
+            if submit_login:
+                if not username_input.strip() or not password_input.strip():
+                    st.error("⚠️ يرجى إدخال اسم المستخدم وكلمة المرور بشكل صحيح!")
+                else:
+                    conn = sqlite3.connect("fleet.db", timeout=30.0)
+                    cur = conn.cursor()
+                    cur.execute("SELECT Username, Password, FullName FROM Users WHERE TRIM(Username) = TRIM(?)", (username_input.strip(),))
+                    user = cur.fetchone()
+                    conn.close()
+                    
+                    if st.session_state.get("lock_until", 0) > time.time():
+                        st.error("⛔ تم إيقاف تسجيل الدخول مؤقتاً بسبب محاولات خاطئة كثيرة. حاول بعد بضع دقائق.")
+                    elif user and verify_password(password_input.strip(), user[1]):
+                        st.session_state["fails"] = 0
+                        st.session_state["login_user"] = user[0]
+                        st.session_state["default_pw"] = (password_input.strip() == "1234")
+                        st.session_state["logged_in"] = True
+                        st.session_state["username"] = user[2] if user[2] and user[2].strip() != "" else user[0]
+                        st.success("✅ أهلاً بك! تم تسجيل الدخول بنجاح...")
+                        st.rerun()
+                    else:
+                        st.session_state["fails"] = st.session_state.get("fails", 0) + 1
+                        if st.session_state["fails"] >= 5:
+                            st.session_state["lock_until"] = time.time() + 300
+                            st.session_state["fails"] = 0
+                            st.error("⛔ محاولات خاطئة كثيرة، تم إيقاف تسجيل الدخول لمدة 5 دقائق.")
+                        else:
+                            st.error("❌ اسم المستخدم أو كلمة المرور غير صحيحة!")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+else:
+    with st.sidebar:
+        if logo_b64:
+            st.markdown(f"""
+                <div style="text-align: center;">
+                    <img src="data:image/jpeg;base64,{logo_b64}" class="circular-logo-sidebar">
+                </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("---")
+        st.markdown(f"""
+            <div style="text-align: center; font-size: 16px; color: #0369a1; margin-bottom: 10px;">
+                👤 مرحباً بك: <span style="font-weight: bold; color: #1e3a8a;">{esc(st.session_state['username'])}</span>
+            </div>
+        """, unsafe_allow_html=True)
+        st.markdown("---")
+        
+        if st.session_state.get("default_pw"):
+            st.warning("⚠️ كلمة المرور الحالية افتراضية (1234). غيّرها من «إدارة المستخدمين».")
+
+        menu_items = [
+            "إدارة المركبات", 
+            "أنواع المركبات", 
+            "الورش والمراكز", 
+            "أعمال الصيانة",
+            "إدارة المستخدمين", 
+            "سجلات الصيانة", 
+            "البطارية والضمان",
+            "تقرير الفحص الدورى للمركبه",
+            "عقود الفنادق",
+            "فواتير المواقف الذكية",
+            "التقرير الشامل",
+            "بيان الركاب",
+            "النسخ الاحتياطي للداتا"
+        ]
+        if st.session_state.get("login_user") != "admin":
+            menu_items = [m for m in menu_items if m not in ("إدارة المستخدمين", "النسخ الاحتياطي للداتا")]
+        menu = st.radio("🗂️ القائمة الرئيسية", menu_items)
+        st.markdown("---")
+        if st.button("🚪 تسجيل الخروج", type="secondary", use_container_width=True):
+            st.session_state["logged_in"] = False
+            st.session_state["username"] = ""
+            st.session_state["login_user"] = ""
+            st.session_state["default_pw"] = False
+            st.rerun()
+
+    st.markdown("""
+        <div class="main-header-centered">
+            <h1>🚍 شركة بروج العالم للنقل الحجاج والمعتمرين</h1>
+            <p>نظام إدارة أسطول المركبات والحافلات والبطاريات والضمان الذكي</p>
+        </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # 1. صفحة إدارة المركبات
+    if menu == "إدارة المركبات":
+        st.subheader("📋 سجل وقطاع أسطول المركبات والحافلات")
+
+        try:
+            conn_types = sqlite3.connect("fleet.db", timeout=30.0)
+            v_types_df = pd.read_sql_query("SELECT TypeName FROM VehicleTypes", conn_types)
+            all_buses_raw_df = pd.read_sql_query("SELECT BusID, VehicleType FROM Buses", conn_types)
+            m_types_bus_df = pd.read_sql_query("SELECT JobTypeName FROM MaintenanceTypes", conn_types)
+            conn_types.close()
+            
+            all_vehicle_types = ["-- اختر --"] + v_types_df["TypeName"].tolist() if not v_types_df.empty else ["-- اختر --"]
+            available_maintenance_types = m_types_bus_df["JobTypeName"].tolist() if not m_types_bus_df.empty else ["صيانة دورية"]
+        except Exception:
+            all_vehicle_types = ["-- اختر --", "حافلة كبيرة", "سيارة خاصة", "ميني باص"]
+            available_maintenance_types = ["صيانة دورية"]
+            all_buses_raw_df = pd.DataFrame()
+
+        with st.expander("➕ إضافة مركبة جديدة للنظام"):
+            with st.form("add_bus_form", clear_on_submit=True):
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    v_type = st.selectbox("نوع المركبة*", all_vehicle_types)
+                    bus_id = st.text_input("رقم المركبة*", value="", placeholder="مثال: 5486 RXA")
+                    model = st.text_input("الموديل", value="", placeholder="مثال: 2025")
+                with c2:
+                    op_num = st.text_input("رقم التشغيل", value="", placeholder="مثال: 101")
+                    odo_curr = st.text_input("العداد الحالي", value="", placeholder="ادخل العداد الحالي")
+                    odo_last = st.text_input("العداد السابق", value="", placeholder="ادخل العداد السابق")
+                with c3:
+                    oil_validity = st.selectbox("صلاحية غيار الزيت (كم)", options=[5000, 10000], index=0)
+                    maint_type = st.selectbox("نوع الصيانة", options=available_maintenance_types)
+                    last_date = st.date_input("آخر صيانة", datetime.now())
+                    days_to_next_maint = st.number_input("عدد الأيام للصيانة القادمة", min_value=1, value=30, step=1)
+
+                if st.form_submit_button("حفظ المركبة"):
+                    if v_type == "-- اختر --" or not bus_id.strip():
+                        st.error("⚠️ تنبيه هام: حقل 'نوع المركبة' و 'رقم المركبة' إجباريان فقط!")
+                    else:
+                        try:
+                            curr_val = float(odo_curr) if odo_curr.strip() else 0.0
+                            last_val = float(odo_last) if odo_last.strip() else 0.0
+                            km_rem = int(oil_validity) - (curr_val - last_val)
+                            calculated_next_date = last_date + timedelta(days=int(days_to_next_maint))
+                            clean_model = model.strip() if model.strip() else "غير متوفر"
+                            clean_op = op_num.strip() if op_num.strip() else "غير متوفر"
+
+                            conn = sqlite3.connect("fleet.db", timeout=30.0)
+                            cur = conn.cursor()
+                            cur.execute("""
+                                INSERT INTO Buses (
+                                    BusID, VehicleType, Model, OperationNumber, OdoCurrent, OdoLast, 
+                                    KmRemaining, LastDate, NextDate, MaintType, OilValidity
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """, (bus_id.strip(), v_type, clean_model, clean_op, curr_val, last_val, km_rem, str(last_date), str(calculated_next_date), maint_type, int(oil_validity)))
+                            conn.commit()
+                            conn.close()
+                            st.success("تم إضافة المركبة بنجاح!")
+                            st.rerun()
+                        except sqlite3.IntegrityError:
+                            st.error("⚠️ رقم المركبة هذا موجود مسبقاً في النظام!")
+                        except Exception as e:
+                            st.error(f"خطأ: {e}")
+
+        if not all_buses_raw_df.empty:
+            with st.expander("⚙️ تعديل أو حذف مركبة مسجلة"):
+                col_ed1, col_ed2 = st.columns(2)
+                with col_ed1:
+                    edit_filter_type = st.selectbox("اختر نوع المركبة أولاً", options=["-- اختر --"] + v_types_df["TypeName"].tolist(), key="edit_type_filter")
+                
+                filtered_edit_buses = all_buses_raw_df[all_buses_raw_df["VehicleType"] == edit_filter_type]["BusID"].tolist() if edit_filter_type != "-- اختر --" else []
+                
+                with col_ed2:
+                    selected_bus_to_edit = st.selectbox("اختر رقم المركبة للتعديل أو الحذف", options=["-- اختر --"] + filtered_edit_buses, key="edit_bus_id_select")
+                
+                if edit_filter_type != "-- اختر --" and selected_bus_to_edit != "-- اختر --":
+                    conn = sqlite3.connect("fleet.db", timeout=30.0)
+                    cur = conn.cursor()
+                    cur.execute("SELECT VehicleType, Model, OperationNumber, OdoCurrent, OdoLast, LastDate, NextDate, MaintType, OilValidity FROM Buses WHERE BusID = ?", (selected_bus_to_edit,))
+                    b_data = cur.fetchone()
+                    conn.close()
+
+                    if b_data:
+                        current_maint_idx = available_maintenance_types.index(b_data[7]) if b_data[7] in available_maintenance_types else 0
+                        l_dt_obj = datetime.now().date()
+                        try:
+                            l_dt_obj = datetime.strptime(str(b_data[5]).split()[0], "%Y-%m-%d").date()
+                            n_dt_obj = datetime.strptime(str(b_data[6]).split()[0], "%Y-%m-%d").date()
+                            default_days_diff = max(1, (n_dt_obj - l_dt_obj).days)
+                        except Exception:
+                            default_days_diff = 30
+
+                        with st.form("edit_delete_bus_form"):
+                            ec1, ec2, ec3 = st.columns(3)
+                            with ec1:
+                                edit_vtype = st.selectbox("نوع المركبة", options=all_vehicle_types[1:], index=all_vehicle_types[1:].index(b_data[0]) if b_data[0] in all_vehicle_types[1:] else 0)
+                                new_bus_id_input = st.text_input("تعديل رقم المركبة (اللوحة)", value=str(selected_bus_to_edit))
+                                edit_model = st.text_input("الموديل", value=b_data[1])
+                            with ec2:
+                                edit_op_num = st.text_input("رقم التشغيل", value=b_data[2])
+                                edit_odo_curr = st.text_input("العداد الحالي", value=str(b_data[3]))
+                                edit_odo_last = st.text_input("العداد السابق", value=str(b_data[4]))
+                            with ec3:
+                                curr_oil_val = int(b_data[8]) if b_data[8] in [5000, 10000] else 5000
+                                edit_oil_validity = st.selectbox("صلاحية غيار الزيت (كم)", options=[5000, 10000], index=[5000, 10000].index(curr_oil_val))
+                                edit_maint_type = st.selectbox("نوع الصيانة", options=available_maintenance_types, index=current_maint_idx)
+                                edit_last_date = st.date_input("آخر صيانة", l_dt_obj)
+                                edit_days_to_next = st.number_input("عدد الأيام للصيانة القادمة", min_value=1, value=default_days_diff, step=1)
+
+                            btn_col1, btn_col2 = st.columns(2)
+                            with btn_col1:
+                                update_bus_btn = st.form_submit_button("💾 حفظ التعديلات", type="primary")
+                            with btn_col2:
+                                delete_bus_btn = st.form_submit_button("🗑️ حذف المركبة")
+
+                            if update_bus_btn:
+                                if not new_bus_id_input.strip():
+                                    st.error("⚠️ رقم المركبة لا يمكن أن يكون فارغاً!")
+                                else:
+                                    try:
+                                        curr_val = float(edit_odo_curr) if edit_odo_curr.strip() else 0.0
+                                        last_val = float(edit_odo_last) if edit_odo_last.strip() else 0.0
+                                        km_rem = edit_oil_validity - (curr_val - last_val)
+                                        edit_next_date = edit_last_date + timedelta(days=int(edit_days_to_next))
+
+                                        conn = sqlite3.connect("fleet.db", timeout=30.0)
+                                        cur = conn.cursor()
+                                        new_bus_id = new_bus_id_input.strip()
+                                        if new_bus_id != selected_bus_to_edit:
+                                            cur.execute("UPDATE Buses SET BusID=?, VehicleType=?, Model=?, OperationNumber=?, OdoCurrent=?, OdoLast=?, KmRemaining=?, LastDate=?, NextDate=?, MaintType=?, OilValidity=? WHERE BusID=?", (new_bus_id, edit_vtype, edit_model, edit_op_num, curr_val, last_val, km_rem, str(edit_last_date), str(edit_next_date), edit_maint_type, int(edit_oil_validity), selected_bus_to_edit))
+                                            cur.execute("UPDATE Logs SET BusID=? WHERE BusID=?", (new_bus_id, selected_bus_to_edit))
+                                            cur.execute("UPDATE InspectionReports SET BusID=? WHERE BusID=?", (new_bus_id, selected_bus_to_edit))
+                                        else:
+                                            cur.execute("UPDATE Buses SET VehicleType=?, Model=?, OperationNumber=?, OdoCurrent=?, OdoLast=?, KmRemaining=?, LastDate=?, NextDate=?, MaintType=?, OilValidity=? WHERE BusID=?", (edit_vtype, edit_model, edit_op_num, curr_val, last_val, km_rem, str(edit_last_date), str(edit_next_date), edit_maint_type, int(edit_oil_validity), selected_bus_to_edit))
+                                        conn.commit()
+                                        conn.close()
+                                        st.success("✅ تم تحديث بيانات ورقم المركبة بنجاح!")
+                                        st.rerun()
+                                    except sqlite3.IntegrityError:
+                                        st.error("⚠️ رقم المركبة الجديد موجود مسبقاً في النظام!")
+                                    except Exception as e:
+                                        st.error(f"خطأ أثناء التعديل: {e}")
+
+                            if delete_bus_btn:
+                                conn = sqlite3.connect("fleet.db", timeout=30.0)
+                                conn.execute("DELETE FROM Buses WHERE BusID = ?", (selected_bus_to_edit,))
+                                conn.commit()
+                                conn.close()
+                                st.success("🗑️ تم حذف المركبة بنجاح!")
+                                st.rerun()
+
+        try:
+            conn = sqlite3.connect("fleet.db", timeout=30.0)
+            buses_df = pd.read_sql_query("SELECT * FROM Buses", conn)
+            conn.close()
+            
+            if not buses_df.empty:
+                st.markdown("---")
+                filter_options = ["-- عرض الكل --"] + v_types_df["TypeName"].tolist()
+                selected_vehicle_filter = st.selectbox("🔍 فلترة جدول عرض المركبات حسب نوع المركبة", options=filter_options)
+
+                if selected_vehicle_filter != "-- عرض الكل --":
+                    buses_df = buses_df[buses_df["VehicleType"] == selected_vehicle_filter]
+
+                if "Notes" in buses_df.columns: buses_df = buses_df.drop(columns=["Notes"])
+                
+                today = datetime.now().date()
+                days_maint_list = []
+                alert_status_list = []
+
+                for _, row in buses_df.iterrows():
+                    try:
+                        next_dt_obj = datetime.strptime(str(row["NextDate"]).split()[0], "%Y-%m-%d").date()
+                        d_maint = (next_dt_obj - today).days
+                    except Exception:
+                        d_maint = 0
+                    days_maint_list.append(d_maint)
+
+                    if d_maint < 10:
+                        st_status = "صيانة عاجلة"
+                    elif d_maint <= 30:
+                        st_status = "صيانة قادمة"
+                    else:
+                        st_status = "الحالة ممتازة"
+                    alert_status_list.append(st_status)
+
+                buses_df["DaysToMaintenance"] = days_maint_list
+                buses_df["AlertStatus"] = alert_status_list
+
+                for col in ["OdoCurrent", "OdoLast", "KmRemaining", "DaysToMaintenance", "OilValidity"]:
+                    if col in buses_df.columns:
+                        buses_df[col] = buses_df[col].fillna(0).astype(int)
+
+                desired_columns = [
+                    "OperationNumber", "BusID", "VehicleType", "Model", 
+                    "OdoCurrent", "OdoLast", "OilValidity", "KmRemaining", 
+                    "LastDate", "DaysToMaintenance", "AlertStatus"
+                ]
+                
+                buses_clean_df = buses_df[[col for col in desired_columns if col in buses_df.columns]]
+                arabic_column_names = {
+                    "OperationNumber": "رقم التشغيل",
+                    "BusID": "رقم المركبة",
+                    "VehicleType": "نوع المركبة",
+                    "Model": "الموديل",
+                    "OdoCurrent": "العداد الحالي",
+                    "OdoLast": "العداد السابق",
+                    "OilValidity": "صلاحية الزيت (كم)",
+                    "KmRemaining": "المتبقي (كم)",
+                    "LastDate": "آخر صيانة",
+                    "DaysToMaintenance": "أيام الصيانة المتبقية",
+                    "AlertStatus": "حالة التنبيه"
+                }
+                buses_display_df = buses_clean_df.rename(columns=arabic_column_names)
+
+                html_table_code = """
+                <style>
+                    .custom-fleet-table {
+                        width: 100%;
+                        border-collapse: collapse;
+                        background-color: #ffffff;
+                        border-radius: 12px;
+                        overflow: hidden;
+                        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+                        direction: rtl;
+                        text-align: center;
+                        margin-top: 15px;
+                        margin-bottom: 25px;
+                    }
+                    .custom-fleet-table th {
+                        background: linear-gradient(135deg, #0369a1 0%, #0284c7 100%);
+                        color: #ffffff;
+                        padding: 14px 10px;
+                        font-size: 15.5px;
+                        font-weight: 700;
+                        text-align: center;
+                        border: 1px solid #0284c7;
+                    }
+                    .custom-fleet-table td {
+                        padding: 12px 10px;
+                        font-size: 15px;
+                        font-weight: 600;
+                        text-align: center;
+                        border: 1px solid #e2e8f0;
+                        vertical-align: middle;
+                    }
+                    .status-urgent {
+                        background-color: #fee2e2 !important;
+                        color: #991b1b !important;
+                        font-weight: bold;
+                    }
+                    .status-upcoming {
+                        background-color: #fef9c3 !important;
+                        color: #854d0e !important;
+                        font-weight: bold;
+                    }
+                    .status-excellent {
+                        background-color: #dcfce7 !important;
+                        color: #166534 !important;
+                        font-weight: bold;
+                    }
+                </style>
+                <table class="custom-fleet-table">
+                    <thead>
+                        <tr>
+                """
+                
+                for col_name in buses_display_df.columns:
+                    html_table_code += f"<th>{esc(col_name)}</th>"
+                html_table_code += "</tr></thead><tbody>"
+
+                for _, row in buses_display_df.iterrows():
+                    status = row.get("حالة التنبيه", "")
+                    row_class = ""
+                    if status == "صيانة عاجلة":
+                        row_class = "status-urgent"
+                    elif status == "صيانة قادمة":
+                        row_class = "status-upcoming"
+                    else:
+                        row_class = "status-excellent"
+
+                    html_table_code += "<tr>"
+                    for val in row:
+                        html_table_code += f"<td class='{row_class}'>{esc(val)}</td>"
+                    html_table_code += "</tr>"
+
+                html_table_code += "</tbody></table>"
+                st.markdown(html_table_code, unsafe_allow_html=True)
+
+        except Exception as e:
+            st.error(f"خطأ في عرض الجدول: {e}")
+
+    # 2. صفحة أنواع المركبات
+    elif menu == "أنواع المركبات":
+        st.subheader("🏷️ لوحة تحكم وإدارة أنواع المركبات")
+        
+        with st.expander("➕ إضافة نوع مركبة جديد"):
+            with st.form("add_v_type_form", clear_on_submit=True):
+                new_v_type = st.text_input("اسم نوع المركبة*", placeholder="مثال: حافلة كوستر")
+                if st.form_submit_button("حفظ النوع", type="primary"):
+                    if not new_v_type.strip():
+                        st.error("⚠️ يرجى إدخال اسم نوع المركبة!")
+                    else:
+                        try:
+                            conn = sqlite3.connect("fleet.db", timeout=30.0)
+                            cur = conn.cursor()
+                            cur.execute("INSERT INTO VehicleTypes (TypeName) VALUES (?)", (new_v_type.strip(),))
+                            conn.commit()
+                            conn.close()
+                            st.success("✅ تم إضافة نوع المركبة بنجاح!")
+                            st.rerun()
+                        except sqlite3.IntegrityError:
+                            st.error("⚠️ هذا النوع موجود مسبقاً!")
+                        except Exception as e:
+                            st.error(f"خطأ: {e}")
+
+        conn = sqlite3.connect("fleet.db", timeout=30.0)
+        types_list = pd.read_sql_query("SELECT TypeName FROM VehicleTypes", conn)["TypeName"].tolist()
+        conn.close()
+
+        if types_list:
+            with st.expander("⚙️ تعديل أو حذف نوع مركبة"):
+                with st.form("edit_del_v_type_form"):
+                    sel_t = st.selectbox("اختر نوع المركبة للتعديل أو الحذف", options=types_list)
+                    new_t_name = st.text_input("اسم النوع الجديد", value=sel_t)
+                    
+                    col_b1, col_b2 = st.columns(2)
+                    with col_b1:
+                        up_t = st.form_submit_button("💾 حفظ التعديل", type="primary")
+                    with col_b2:
+                        del_t = st.form_submit_button("🗑️ حذف النوع")
+
+                    if up_t:
+                        if not new_t_name.strip():
+                            st.error("⚠️ الاسم لا يمكن أن يكون فارغاً!")
+                        else:
+                            try:
+                                conn = sqlite3.connect("fleet.db", timeout=30.0)
+                                cur = conn.cursor()
+                                cur.execute("UPDATE VehicleTypes SET TypeName = ? WHERE TypeName = ?", (new_t_name.strip(), sel_t))
+                                cur.execute("UPDATE Buses SET VehicleType = ? WHERE VehicleType = ?", (new_t_name.strip(), sel_t))
+                                conn.commit()
+                                conn.close()
+                                st.success("✅ تم التعديل بنجاح!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"خطأ: {e}")
+
+                    if del_t:
+                        try:
+                            conn = sqlite3.connect("fleet.db", timeout=30.0)
+                            cur = conn.cursor()
+                            cur.execute("DELETE FROM VehicleTypes WHERE TypeName = ?", (sel_t,))
+                            conn.commit()
+                            conn.close()
+                            st.success("🗑️ تم الحذف بنجاح!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"خطأ: {e}")
+
+        conn = sqlite3.connect("fleet.db", timeout=30.0)
+        types_disp = pd.read_sql_query("SELECT TypeName AS 'نوع المركبة' FROM VehicleTypes", conn)
+        conn.close()
+        st.markdown("---")
+        st.dataframe(types_disp.style.set_properties(**{'text-align': 'center'}), use_container_width=True, hide_index=True)
+
+    # 3. صفحة الورش والمراكز
+    elif menu == "الورش والمراكز":
+        st.subheader("🏢 إدارة ورش الصيانة والمراكز")
+        
+        with st.expander("➕ إضافة ورشة أو مركز صيانة جديد"):
+            with st.form("add_ws_form", clear_on_submit=True):
+                new_ws_name = st.text_input("اسم الورشة أو المركز*", placeholder="مثال: ورشة النور المركزية")
+                if st.form_submit_button("حفظ الورشة", type="primary"):
+                    if not new_ws_name.strip():
+                        st.error("⚠️ يرجى إدخال اسم الورشة!")
+                    else:
+                        try:
+                            conn = sqlite3.connect("fleet.db", timeout=30.0)
+                            cur = conn.cursor()
+                            cur.execute("INSERT INTO Workshops (WorkshopName) VALUES (?)", (new_ws_name.strip(),))
+                            conn.commit()
+                            conn.close()
+                            st.success("✅ تم إضافة الورشة بنجاح!")
+                            st.rerun()
+                        except sqlite3.IntegrityError:
+                            st.error("⚠️ هذه الورشة موجودة مسبقاً!")
+                        except Exception as e:
+                            st.error(f"خطأ: {e}")
+
+        conn = sqlite3.connect("fleet.db", timeout=30.0)
+        ws_list = pd.read_sql_query("SELECT WorkshopName FROM Workshops", conn)["WorkshopName"].tolist()
+        conn.close()
+
+        if ws_list:
+            with st.expander("⚙️ تعديل أو حذف ورشة صيانة"):
+                with st.form("edit_del_ws_form"):
+                    sel_ws = st.selectbox("اختر الورشة للتعديل أو الحذف", options=ws_list)
+                    new_ws_input = st.text_input("اسم الورشة الجديد", value=sel_ws)
+                    
+                    col_wb1, col_wb2 = st.columns(2)
+                    with col_wb1:
+                        up_ws = st.form_submit_button("💾 حفظ تعديل الورشة", type="primary")
+                    with col_wb2:
+                        del_ws = st.form_submit_button("🗑️ حذف الورشة")
+
+                    if up_ws:
+                        if not new_ws_input.strip():
+                            st.error("⚠️ اسم الورشة لا يمكن أن يكون فارغاً!")
+                        else:
+                            try:
+                                conn = sqlite3.connect("fleet.db", timeout=30.0)
+                                cur = conn.cursor()
+                                cur.execute("UPDATE Workshops SET WorkshopName = ? WHERE WorkshopName = ?", (new_ws_input.strip(), sel_ws))
+                                cur.execute("UPDATE Logs SET Workshop = ? WHERE Workshop = ?", (new_ws_input.strip(), sel_ws))
+                                conn.commit()
+                                conn.close()
+                                st.success("✅ تم تحديث اسم الورشة بنجاح!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"خطأ: {e}")
+
+                    if del_ws:
+                        try:
+                            conn = sqlite3.connect("fleet.db", timeout=30.0)
+                            cur = conn.cursor()
+                            cur.execute("DELETE FROM Workshops WHERE WorkshopName = ?", (sel_ws,))
+                            conn.commit()
+                            conn.close()
+                            st.success("🗑️ تم حذف الورشة بنجاح!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"خطأ: {e}")
+
+        conn = sqlite3.connect("fleet.db", timeout=30.0)
+        ws_disp = pd.read_sql_query("SELECT WorkshopName AS 'اسم الورشة / المركز' FROM Workshops", conn)
+        conn.close()
+        st.markdown("---")
+        st.dataframe(ws_disp.style.set_properties(**{'text-align': 'center'}), use_container_width=True, hide_index=True)
+
+    # 4. صفحة أعمال الصيانة
+    elif menu == "أعمال الصيانة":
+        st.subheader("🛠️ إدارة أنواع أعمال الصيانة والخدمات")
+        
+        with st.expander("➕ إضافة نوع صيانة جديد"):
+            with st.form("add_m_type_form", clear_on_submit=True):
+                new_m_type = st.text_input("اسم عمل الصيانة*", placeholder="مثال: تغيير فلاتر")
+                if st.form_submit_button("حفظ عمل الصيانة", type="primary"):
+                    if not new_m_type.strip():
+                        st.error("⚠️ يرجى إدخال اسم العمل!")
+                    else:
+                        try:
+                            conn = sqlite3.connect("fleet.db", timeout=30.0)
+                            cur = conn.cursor()
+                            cur.execute("INSERT INTO MaintenanceTypes (JobTypeName) VALUES (?)", (new_m_type.strip(),))
+                            conn.commit()
+                            conn.close()
+                            st.success("✅ تم الإضافة بنجاح!")
+                            st.rerun()
+                        except sqlite3.IntegrityError:
+                            st.error("⚠️ هذا العمل موجود مسبقاً!")
+                        except Exception as e:
+                            st.error(f"خطأ: {e}")
+
+        conn = sqlite3.connect("fleet.db", timeout=30.0)
+        m_types_list = pd.read_sql_query("SELECT JobTypeName FROM MaintenanceTypes", conn)["JobTypeName"].tolist()
+        conn.close()
+
+        if m_types_list:
+            with st.expander("⚙️ تعديل أو حذف عمل صيانة"):
+                with st.form("edit_del_m_form"):
+                    sel_m = st.selectbox("اختر عمل الصيانة للتعديل أو الحذف", options=m_types_list)
+                    new_m_name = st.text_input("اسم العمل الجديد", value=sel_m)
+                    
+                    col_mb1, col_mb2 = st.columns(2)
+                    with col_mb1:
+                        up_m = st.form_submit_button("💾 حفظ التعديل", type="primary")
+                    with col_mb2:
+                        del_m = st.form_submit_button("🗑️ حذف العمل")
+
+                    if up_m:
+                        if not new_m_name.strip():
+                            st.error("⚠️ الاسم لا يمكن أن يكون فارغاً!")
+                        else:
+                            try:
+                                conn = sqlite3.connect("fleet.db", timeout=30.0)
+                                cur = conn.cursor()
+                                cur.execute("UPDATE MaintenanceTypes SET JobTypeName = ? WHERE JobTypeName = ?", (new_m_name.strip(), sel_m))
+                                conn.commit()
+                                conn.close()
+                                st.success("✅ تم التعديل بنجاح!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"خطأ: {e}")
+
+                    if del_m:
+                        try:
+                            conn = sqlite3.connect("fleet.db", timeout=30.0)
+                            cur = conn.cursor()
+                            cur.execute("DELETE FROM MaintenanceTypes WHERE JobTypeName = ?", (sel_m,))
+                            conn.commit()
+                            conn.close()
+                            st.success("🗑️ تم الحذف بنجاح!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"خطأ: {e}")
+
+        conn = sqlite3.connect("fleet.db", timeout=30.0)
+        m_types_disp = pd.read_sql_query("SELECT JobTypeName AS 'أنواع أعمال الصيانة المسجلة' FROM MaintenanceTypes", conn)
+        conn.close()
+        st.markdown("---")
+        st.dataframe(m_types_disp.style.set_properties(**{'text-align': 'center'}), use_container_width=True, hide_index=True)
+
+    # 5. صفحة إدارة المستخدمين
+    elif menu == "إدارة المستخدمين":
+        st.subheader("👥 لوحة إدارة المستخدمين وصلاحيات الدخول")
+        
+        with st.expander("➕ إضافة مستخدم جديد للنظام"):
+            with st.form("add_user_form", clear_on_submit=True):
+                uc1, uc2, uc3 = st.columns(3)
+                with uc1:
+                    new_uname = st.text_input("اسم المستخدم (Username)*")
+                with uc2:
+                    new_upass = st.text_input("كلمة المرور*", type="password")
+                with uc3:
+                    new_ufull = st.text_input("الاسم الكامل للموظف/المسؤول")
+
+                if st.form_submit_button("حفظ المستخدم الجديد", type="primary"):
+                    if not new_uname.strip() or not new_upass.strip():
+                        st.error("⚠️ يرجى إدخال اسم المستخدم وكلمة المرور!")
+                    else:
+                        try:
+                            conn = sqlite3.connect("fleet.db", timeout=30.0)
+                            cur = conn.cursor()
+                            cur.execute("INSERT INTO Users (Username, Password, FullName) VALUES (?, ?, ?)", 
+                                        (new_uname.strip(), hash_password(new_upass.strip()), new_ufull.strip() if new_ufull else new_uname.strip()))
+                            conn.commit()
+                            conn.close()
+                            st.success("✅ تم إضافة المستخدم بنجاح!")
+                            st.rerun()
+                        except sqlite3.IntegrityError:
+                            st.error("⚠️ اسم المستخدم هذا مستخدم مسبقاً!")
+                        except Exception as e:
+                            st.error(f"خطأ: {e}")
+
+        conn = sqlite3.connect("fleet.db", timeout=30.0)
+        all_users = pd.read_sql_query("SELECT Username, FullName FROM Users", conn)
+        conn.close()
+
+        if not all_users.empty:
+            with st.expander("⚙️ تعديل كلمة مرور أو حذف مستخدم"):
+                with st.form("edit_del_user_form"):
+                    user_opts = all_users["Username"].tolist()
+                    sel_u_target = st.selectbox("اختر اسم المستخدم للتعديل أو الحذف", options=user_opts)
+                    new_pw_target = st.text_input("كلمة المرور الجديدة (اتركها فارغة إذا لم ترد التغيير)", type="password")
+                    new_fn_target = st.text_input("الاسم الكامل الجديد", value=str(all_users[all_users["Username"]==sel_u_target]["FullName"].values[0] or ""))
+
+                    col_ub1, col_ub2 = st.columns(2)
+                    with col_ub1:
+                        up_u = st.form_submit_button("💾 حفظ تعديلات المستخدم", type="primary")
+                    with col_ub2:
+                        del_u = st.form_submit_button("🗑️ حذف المستخدم")
+
+                    if up_u:
+                        try:
+                            conn = sqlite3.connect("fleet.db", timeout=30.0)
+                            cur = conn.cursor()
+                            if new_pw_target.strip():
+                                cur.execute("UPDATE Users SET Password=?, FullName=? WHERE Username=?", 
+                                            (hash_password(new_pw_target.strip()), new_fn_target.strip(), sel_u_target))
+                            else:
+                                cur.execute("UPDATE Users SET FullName=? WHERE Username=?", 
+                                            (new_fn_target.strip(), sel_u_target))
+                            conn.commit()
+                            conn.close()
+                            st.success("✅ تم تحديث بيانات المستخدم بنجاح!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"خطأ: {e}")
+
+                    if del_u:
+                        if sel_u_target == "admin":
+                            st.error("⛔ لا يمكن حذف حساب المدير الأساسي (admin)!")
+                        else:
+                            try:
+                                conn = sqlite3.connect("fleet.db", timeout=30.0)
+                                cur = conn.cursor()
+                                cur.execute("DELETE FROM Users WHERE Username=?", (sel_u_target,))
+                                conn.commit()
+                                conn.close()
+                                st.success("🗑️ تم حذف المستخدم بنجاح!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"خطأ: {e}")
+
+        conn = sqlite3.connect("fleet.db", timeout=30.0)
+        users_disp = pd.read_sql_query("SELECT Username AS 'اسم المستخدم', FullName AS 'الاسم الكامل' FROM Users", conn)
+        conn.close()
+        st.markdown("---")
+        st.dataframe(users_disp.style.set_properties(**{'text-align': 'center'}), use_container_width=True, hide_index=True)
+
+    # 6. صفحة سجلات الصيانة
+    elif menu == "سجلات الصيانة":
+        st.subheader("🛠️ أعمال الصيانة والفواتير والمصروفات العامة")
+        
+        try:
+            conn = sqlite3.connect("fleet.db", timeout=30.0)
+            v_types_logs = pd.read_sql_query("SELECT TypeName FROM VehicleTypes", conn)["TypeName"].tolist()
+            buses_info = pd.read_sql_query("SELECT BusID, VehicleType FROM Buses", conn)
+            w_list = pd.read_sql_query("SELECT WorkshopName FROM Workshops", conn)["WorkshopName"].tolist()
+            j_list = pd.read_sql_query("SELECT JobTypeName FROM MaintenanceTypes", conn)["JobTypeName"].tolist()
+            conn.close()
+        except Exception:
+            v_types_logs, buses_info, w_list, j_list = [], pd.DataFrame(), [], []
+
+        with st.expander("➕ إضافة سجل صيانة أو مصروفات عامة جديد", expanded=True):
+            log_target_mode = st.selectbox("تصنيف البند", options=["مركبة تابعة للأسطول", "مصروفات عامة / بدون مركبة"], key="log_target_mode_dyn")
+            
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                log_date = st.date_input("تاريخ السجل", datetime.now(), key="log_date_dyn")
+            with c2:
+                log_job = st.selectbox("نوع العمل أو البند*", options=j_list if j_list else ["صيانة دورية"], key="log_job_dyn")
+            with c3:
+                log_cost = st.number_input("التكلفة (ريال)*", min_value=0.0, value=0.0, step=50.0, key="log_cost_dyn")
+
+            selected_vtype_for_log = "-- اختر --"
+            filtered_buses_for_log = []
+            log_bus = "مصروفات عامة"
+
+            if log_target_mode == "مركبة تابعة للأسطول":
+                sc1, sc2 = st.columns(2)
+                with sc1:
+                    selected_vtype_for_log = st.selectbox("نوع المركبة*", options=["-- اختر --"] + v_types_logs, key="log_vtype_dyn")
+                
+                if selected_vtype_for_log != "-- اختر --" and not buses_info.empty:
+                    matched_df = buses_info[buses_info["VehicleType"].astype(str).str.strip() == selected_vtype_log.strip()]
+                    filtered_buses_for_log = matched_df["BusID"].tolist()
+                    if not filtered_buses_for_log:
+                        filtered_buses_for_log = buses_info["BusID"].tolist()
+                else:
+                    filtered_buses_for_log = buses_info["BusID"].tolist() if not buses_info.empty else []
+
+                with sc2:
+                    log_bus = st.selectbox("رقم المركبة*", options=["-- اختر --"] + filtered_buses_for_log, key="log_busid_dyn")
+            else:
+                st.markdown("<div style='color: #0369a1; font-weight: bold; margin: 10px 0;'>📌 بند عام غير مرتبط برقم مركبة</div>", unsafe_allow_html=True)
+
+            cc1, cc2 = st.columns(2)
+            with cc1:
+                workshop_options = ["-- اختر الورشة --"] + w_list if w_list else ["لا توجد ورش مسجلة"]
+                log_ws = st.selectbox("الجهة / الورشة*", options=workshop_options, key="log_ws_dyn")
+            with cc2:
+                log_status = st.selectbox("حالة السداد / الفاتورة*", options=["مدفوع", "غير مدفوع"], key="log_status_dyn")
+
+            log_file = st.file_uploader("إرفاق فاتورة / مستند (PDF / صورة)", type=["pdf", "png", "jpg", "jpeg"], key="log_file_dyn")
+            log_notes = st.text_area("ملاحظات إضافية", key="log_notes_dyn")
+
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("حفظ السجل الجديد", type="primary", use_container_width=True, key="save_log_btn_dyn"):
+                if log_target_mode == "مركبة تابعة للأسطول" and (selected_vtype_for_log == "-- اختر --" or log_bus == "-- اختر --"):
+                    st.error("⚠️ يرجى اختيار نوع المركبة ورقم المركبة بدقة!")
+                elif log_ws in ("-- اختر الورشة --", "لا توجد ورش مسجلة"):
+                    st.error("⚠️ يرجى اختيار ورشة أو جهة الصيانة بدقة!")
+                else:
+                    f_path = ""
+                    if log_file is not None:
+                        prefix_str = "general_expense" if log_bus == "مصروفات عامة" else f"log_{log_bus}"
+                        f_path = save_upload("uploaded_invoices", prefix_str, log_file)
+                    
+                    conn = sqlite3.connect("fleet.db", timeout=30.0)
+                    cur = conn.cursor()
+                    cur.execute("""
+                        INSERT INTO Logs (BusID, DoneDate, JobType, Cost, Workshop, InvoiceStatus, InvoiceFile, Notes)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (log_bus, str(log_date), log_job, log_cost, log_ws, log_status, f_path, log_notes))
+                    conn.commit()
+                    conn.close()
+                    st.success("✅ تم حفظ السجل والمصروفات بنجاح!")
+                    st.rerun()
+
+        try:
+            conn = sqlite3.connect("fleet.db", timeout=30.0)
+            logs_df = pd.read_sql_query("""
+                SELECT l.*, COALESCE(b.VehicleType, 'مصروفات عامة') AS VehicleType 
+                FROM Logs l 
+                LEFT JOIN Buses b ON l.BusID = b.BusID
+            """, conn)
+            conn.close()
+            
+            if not logs_df.empty:
+                st.markdown("---")
+                st.markdown("#### 🔍 تصفية سجلات الصيانة والمصروفات العامة")
+
+                flt_col1, flt_col2, flt_col3 = st.columns(3)
+                with flt_col1:
+                    type_options = ["-- الكل --", "مصروفات عامة"] + v_types_logs
+                    selected_v_type_filter = st.selectbox("اختر التصنيف / نوع المركبة", options=type_options, key="filter_v_type")
+
+                filtered_buses_for_dropdown = buses_info["BusID"].tolist() if buses_info is not None and not buses_info.empty else []
+                with flt_col2:
+                    bus_options = ["-- الكل --", "مصروفات عامة"] + filtered_buses_for_dropdown
+                    selected_bus_filter = st.selectbox("اختر رقم المركبة / البند", options=bus_options, key="filter_bus_id")
+
+                with flt_col3:
+                    date_filter_mode = st.selectbox("فلترة حسب التاريخ", options=["-- كل التواريخ --", "تاريخ محدد", "خلال شهر"], key="filter_date_mode")
+
+                filtered_display_df = logs_df.copy()
+                if selected_v_type_filter == "مصروفات عامة":
+                    filtered_display_df = filtered_display_df[filtered_display_df["BusID"] == "مصروفات عامة"]
+                elif selected_v_type_filter != "-- الكل --":
+                    filtered_display_df = filtered_display_df[filtered_display_df["VehicleType"] == selected_v_type_filter]
+
+                if selected_bus_filter != "-- الكل --":
+                    filtered_display_df = filtered_display_df[filtered_display_df["BusID"] == selected_bus_filter]
+
+                if date_filter_mode == "تاريخ محدد":
+                    chosen_single_date = st.date_input("حدد التاريخ المطلوبة", datetime.now(), key="filter_single_date")
+                    filtered_display_df["CleanDate"] = pd.to_datetime(filtered_display_df["DoneDate"], errors='coerce').dt.date
+                    filtered_display_df = filtered_display_df[filtered_display_df["CleanDate"] == chosen_single_date]
+                elif date_filter_mode == "خلال شهر":
+                    current_month_prefix = datetime.now().strftime("%Y-%m")
+                    filtered_display_df = filtered_display_df[filtered_display_df["DoneDate"].str.startswith(current_month_prefix)]
+
+                st.markdown("---")
+                st.markdown(f"#### 📋 النتائج المطابقة ({len(filtered_display_df)} سجل)")
+
+                if filtered_display_df.empty:
+                    st.info("لا توجد سجلات مطابقة لخيارات الفلترة المحددة.")
+                else:
+                    for _, row in filtered_display_df.iterrows():
+                        log_id = row['LogID']
+                        inv_file = row.get("InvoiceFile", "")
+                        is_general_expense = (row['BusID'] == "مصروفات عامة")
+                        
+                        box_title_prefix = "📌 مصروفات عامة" if is_general_expense else f"🚍 مركبة: {esc(row['BusID'])}"
+                        
+                        st.markdown(f"""
+                            <div style="background: #ffffff; padding: 16px 20px; border-radius: 12px; border: 1px solid #cbd5e1; margin-bottom: 12px; box-shadow: 0 3px 10px rgba(0,0,0,0.04);">
+                                <div style="font-size: 16.5px; color: #1e293b; margin-bottom: 8px;">
+                                    <b>رقم السجل:</b> <span style="color: #0369a1;">#{log_id}</span> | 
+                                    <b>التصنيف:</b> {box_title_prefix} | 
+                                    <b>التاريخ:</b> {esc(row['DoneDate'])} | 
+                                    <b>البند/العمل:</b> {esc(row['JobType'])} | 
+                                    <b>التكلفة:</b> <span style="color: #166534; font-weight: bold;">{float(row['Cost']):,.1f} ريال</span> | 
+                                    <b>الجهة:</b> {esc(row['Workshop'])} (<span style="color: #d97706; font-weight: bold;">{esc(row['InvoiceStatus'])}</span>)
+                                </div>
+                                <div style="font-size: 15px; color: #475569; margin-bottom: 14px; background: #f8fafc; padding: 8px 12px; border-radius: 8px;">
+                                    <b>ملاحظات:</b> {esc(row['Notes'])}
+                                </div>
+                        """, unsafe_allow_html=True)
+
+                        b_col1, b_col2, b_col3 = st.columns([1, 1, 1.5])
+                        with b_col1:
+                            if st.button("✏️ تعديل السجل", key=f"edit_log_btn_{log_id}", use_container_width=True):
+                                st.session_state[f"editing_log_{log_id}"] = True
+                        with b_col2:
+                            if st.button("🗑️ حذف السجل", key=f"del_log_btn_{log_id}", use_container_width=True):
+                                try:
+                                    conn = sqlite3.connect("fleet.db", timeout=30.0)
+                                    cur = conn.cursor()
+                                    cur.execute("DELETE FROM Logs WHERE LogID=?", (log_id,))
+                                    conn.commit()
+                                    conn.close()
+                                    st.success(f"🗑️ تم حذف السجل #{log_id} بنجاح!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"خطأ أثناء الحذف: {e}")
+                        with b_col3:
+                            if inv_file and isinstance(inv_file, str) and os.path.exists(inv_file):
+                                with open(inv_file, "rb") as f_inv:
+                                    st.download_button(
+                                        label="⬇️ تحميل/عرض المستند المرفق",
+                                        data=f_inv.read(),
+                                        file_name=os.path.basename(inv_file),
+                                        mime="application/octet-stream",
+                                        key=f"dl_log_inv_{log_id}",
+                                        use_container_width=True
+                                    )
+                            else:
+                                st.markdown("<div style='text-align: center; padding-top: 6px; color: #94a3b8; font-size: 14.5px;'>لا يوجد مستند مرفق</div>", unsafe_allow_html=True)
+
+                        st.markdown("</div>", unsafe_allow_html=True)
+
+                        if st.session_state.get(f"editing_log_{log_id}", False):
+                            with st.form(key=f"edit_log_form_{log_id}"):
+                                st.markdown(f"**تعديل السجل رقم #{log_id}**")
+                                all_buses_list = ["مصروفات عامة"] + (buses_info["BusID"].tolist() if not buses_info.empty else [])
+                                curr_bus_val = row["BusID"] if row["BusID"] in all_buses_list else "مصروفات عامة"
+                                
+                                ed_l_bus = st.selectbox("المركبة أو التصنيف", options=all_buses_list, index=all_buses_list.index(curr_bus_val), key=f"el_bus_{log_id}")
+                                ed_l_job = st.selectbox("نوع العمل / البند", options=j_list if j_list else ["صيانة دورية"], index=j_list.index(row["JobType"]) if row["JobType"] in j_list else 0, key=f"el_job_{log_id}")
+                                ed_l_cost = st.number_input("التكلفة (ريال)", value=float(row["Cost"]), key=f"el_cost_{log_id}")
+                                
+                                edit_ws_options = ["-- اختر الورشة --"] + w_list if w_list else ["لا توجد ورش مسجلة"]
+                                curr_ws_val = row["Workshop"] if row["Workshop"] in edit_ws_options else edit_ws_options[0]
+                                ed_l_ws = st.selectbox("الجهة / الورشة", options=edit_ws_options, index=edit_ws_options.index(curr_ws_val) if curr_ws_val in edit_ws_options else 0, key=f"el_ws_{log_id}")
+                                
+                                current_status_val = row["InvoiceStatus"] if row["InvoiceStatus"] in ["مدفوع", "غير مدفوع"] else "مدفوع"
+                                ed_l_status = st.selectbox("حالة الفاتورة", options=["مدفوع", "غير مدفوع"], index=["مدفوع", "غير مدفوع"].index(current_status_val), key=f"el_status_{log_id}")
+                                ed_l_notes = st.text_area("ملاحظات", value=str(row["Notes"] or ""), key=f"el_notes_{log_id}")
+
+                                col_fsub1, col_fsub2 = st.columns(2)
+                                with col_fsub1:
+                                    if st.form_submit_button("💾 حفظ التعديلات", type="primary"):
+                                        if ed_l_ws in ("-- اختر الورشة --", "لا توجد ورش مسجلة"):
+                                            st.error("⚠️ يرجى اختيار ورشة الصيانة!")
+                                        else:
+                                            try:
+                                                conn = sqlite3.connect("fleet.db", timeout=30.0)
+                                                cur = conn.cursor()
+                                                cur.execute("UPDATE Logs SET BusID=?, JobType=?, Cost=?, Workshop=?, InvoiceStatus=?, Notes=? WHERE LogID=?", 
+                                                            (ed_l_bus, ed_l_job, ed_l_cost, ed_l_ws, ed_l_status, ed_l_notes, log_id))
+                                                conn.commit()
+                                                conn.close()
+                                                st.session_state[f"editing_log_{log_id}"] = False
+                                                st.success("✅ تم تحديث السجل بنجاح!")
+                                                st.rerun()
+                                            except Exception as e:
+                                                st.error(f"خطأ: {e}")
+                                with col_fsub2:
+                                    if st.form_submit_button("❌ إلغاء"):
+                                        st.session_state[f"editing_log_{log_id}"] = False
+                                        st.rerun()
+
+        except Exception as e:
+            st.error(f"خطأ في عرض السجلات: {e}")
+
+    # 7. صفحة البطارية والضمان
+    elif menu == "البطارية والضمان":
+        st.subheader("🔋 لوحة إدارة ومتابعة أنواع البطاريات وتواريخ الضمان")
+        try:
+            conn = sqlite3.connect("fleet.db", timeout=30.0)
+            v_types_bat = pd.read_sql_query("SELECT TypeName FROM VehicleTypes", conn)["TypeName"].tolist()
+            buses_bat_info = pd.read_sql_query("SELECT BusID, VehicleType FROM Buses", conn)
+            b_list_bat = buses_bat_info["BusID"].tolist() if not buses_bat_info.empty else []
+            conn.close()
+        except Exception:
+            v_types_bat, buses_bat_info, b_list_bat = [], pd.DataFrame(), []
+
+        with st.expander("➕ تسجيل بطارية جديدة وضمانها"):
+            with st.form("battery_form", clear_on_submit=True):
+                bc1, bc2, bc3 = st.columns(3)
+                with bc1:
+                    bat_bus = st.selectbox("رقم المركبة*", options=["-- اختر --"] + b_list_bat, key="bat_bus_sel")
+                    bat_status = st.selectbox("حالة ونوع البطارية", options=["اس دلکو", "بوش", "فارتا", "تركش", "أخرى"])
+                with bc2:
+                    bat_install = st.date_input("تاريخ التركيب", datetime.now(), key="bat_inst_date")
+                    bat_expiry = st.date_input("تاريخ انتهاء الضمان", datetime.now() + timedelta(days=365), key="bat_exp_date")
+                with bc3:
+                    bat_file = st.file_uploader("شهادة ضمان البطارية (PDF / صورة)", type=["pdf", "png", "jpg", "jpeg"], key="bat_uploader")
+
+                if st.form_submit_button("حفظ بيانات البطارية", type="primary"):
+                    if bat_bus == "-- اختر --":
+                        st.error("⚠️ يرجى اختيار رقم المركبة!")
+                    else:
+                        f_bat_path = ""
+                        if bat_file is not None:
+                            f_bat_path = save_upload("battery_warranties", f"battery_{bat_bus}", bat_file)
+                        
+                        conn = sqlite3.connect("fleet.db", timeout=30.0)
+                        cur = conn.cursor()
+                        cur.execute("""
+                            UPDATE Buses SET BatteryStatus = ?, WarrantyExpiry = ?, BatteryInstallDate = ?, BatteryWarrantyFile = ?
+                            WHERE BusID = ?
+                        """, (bat_status, str(bat_expiry), str(bat_install), f_bat_path, bat_bus))
+                        conn.commit()
+                        conn.close()
+                        st.success("✅ تم حفظ بيانات البطارية والضمان بنجاح!")
+                        st.rerun()
+
+        try:
+            conn = sqlite3.connect("fleet.db", timeout=30.0)
+            bat_df = pd.read_sql_query("""
+                SELECT b.BusID, COALESCE(b.VehicleType, 'غير متوفر') AS VehicleType, 
+                       b.BatteryStatus, b.BatteryInstallDate, b.WarrantyExpiry, b.BatteryWarrantyFile 
+                FROM Buses b 
+                WHERE b.BatteryStatus IS NOT NULL
+            """, conn)
+            conn.close()
+            
+            if not bat_df.empty:
+                st.markdown("---")
+                st.markdown("#### 🔍 تصفية جدول البطاريات (حسب نوع المركبة ⬅️ رقم المركبة)")
+
+                bf_col1, bf_col2 = st.columns(2)
+                with bf_col1:
+                    bat_type_options = ["-- الكل --"] + v_types_bat
+                    sel_bat_type_filter = st.selectbox("اختر نوع المركبة للفلترة", options=bat_type_options, key="bat_filter_type")
+
+                filtered_buses_for_bat_dropdown = buses_bat_info["BusID"].tolist() if not buses_bat_info.empty else []
+                if sel_bat_type_filter != "-- الكل --":
+                    if not buses_bat_info.empty:
+                        filtered_buses_for_bat_dropdown = buses_bat_info[buses_bat_info["VehicleType"] == sel_bat_type_filter]["BusID"].tolist()
+
+                with bf_col2:
+                    bat_bus_options = ["-- الكل --"] + filtered_buses_for_bat_dropdown
+                    sel_bat_bus_filter = st.selectbox("اختر رقم المركبة للفلترة", options=bat_bus_options, key="bat_filter_bus")
+
+                filtered_bat_df = bat_df.copy()
+                if sel_bat_type_filter != "-- الكل --":
+                    filtered_bat_df = filtered_bat_df[filtered_bat_df["VehicleType"] == sel_bat_type_filter]
+                if sel_bat_bus_filter != "-- الكل --":
+                    filtered_bat_df = filtered_bat_df[filtered_bat_df["BusID"] == sel_bat_bus_filter]
+
+                st.markdown("---")
+                st.markdown(f"#### 📋 جدول متابعة بطاريات الأسطول وضماناتها ({len(filtered_bat_df)} نتيجة مطابقة)")
+
+                if filtered_bat_df.empty:
+                    st.info("لا توجد بيانات بطاريات مطابقة لخيارات الفلترة المحددة.")
+                else:
+                    today = datetime.now().date()
+                    
+                    for _, row in filtered_bat_df.iterrows():
+                        b_id = row["BusID"]
+                        v_type = row["VehicleType"]
+                        b_status = row["BatteryStatus"]
+                        b_inst = row["BatteryInstallDate"]
+                        b_exp = row["WarrantyExpiry"]
+                        b_file = row.get("BatteryWarrantyFile", "")
+
+                        try:
+                            exp_dt = datetime.strptime(str(b_exp).split()[0], "%Y-%m-%d").date()
+                            w_state = "داخل الضمان" if exp_dt >= today else "خارج الضمان"
+                        except Exception:
+                            w_state = "خارج الضمان"
+
+                        badge_bg = "#dcfce7" if w_state == "داخل الضمان" else "#fee2e2"
+                        badge_color = "#166534" if w_state == "داخل الضمان" else "#991b1b"
+
+                        st.markdown(f"""
+                            <div style="background: #ffffff; padding: 16px 20px; border-radius: 12px; border: 1px solid #cbd5e1; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.03); display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <div style="font-size: 17px; color: #0f172a; font-weight: bold; margin-bottom: 6px;">
+                                        🚍 مركبة: <span style="color: #0369a1;">{esc(b_id)}</span> ({esc(v_type)})
+                                    </div>
+                                    <div style="font-size: 15px; color: #475569;">
+                                        <b>نوع البطارية:</b> {esc(b_status)} &nbsp;|&nbsp; 
+                                        <b>التركيب:</b> {esc(b_inst)} &nbsp;|&nbsp; 
+                                        <b>انتهاء الضمان:</b> {esc(b_exp)} &nbsp;|&nbsp; 
+                                        <span style="background-color: {badge_bg}; color: {badge_color}; padding: 3px 10px; border-radius: 6px; font-weight: bold;">{w_state}</span>
+                                    </div>
+                                </div>
+                        """, unsafe_allow_html=True)
+
+                        if b_file and isinstance(b_file, str) and os.path.exists(b_file):
+                            with open(b_file, "rb") as f_bat:
+                                st.download_button(
+                                    label="📎 تحميل شهادة الضمان",
+                                    data=f_bat.read(),
+                                    file_name=os.path.basename(b_file),
+                                    mime="application/octet-stream",
+                                    key=f"dl_bat_file_{b_id}"
+                                )
+                        else:
+                            st.markdown("<span style='color: #94a3b8; font-size: 14.5px;'>بدون شهادة مرفقة</span>", unsafe_allow_html=True)
+
+                        st.markdown("</div>", unsafe_allow_html=True)
+
+        except Exception as e:
+            st.error(f"خطأ في جدول البطاريات: {e}")
+
+    # 8. صفحة تقرير الفحص الدوري للمركبة (مُحدث بالكامل: حساب تاريخ الانتهاء تلقائياً وفلاتر بحث دقيقة)
+    elif menu == "تقرير الفحص الدورى للمركبه":
+        st.subheader("🔍 لوحة إدارة ومتابعة تقارير الفحص الدوري للمركبات والمستندات")
+        
+        try:
+            conn = sqlite3.connect("fleet.db", timeout=30.0)
+            v_types_insp = pd.read_sql_query("SELECT TypeName FROM VehicleTypes", conn)["TypeName"].tolist()
+            buses_insp_info = pd.read_sql_query("SELECT BusID, VehicleType FROM Buses", conn)
+            conn.close()
+        except Exception:
+            v_types_insp, buses_insp_info = [], pd.DataFrame()
+
+        with st.expander("➕ إضافة تقرير فحص دوري جديد", expanded=True):
+            ic1, ic2 = st.columns(2)
+            with ic1:
+                selected_vtype_insp = st.selectbox("نوع المركبة*", options=["-- اختر --"] + v_types_insp, key="insp_vtype_dyn")
+            
+            filtered_buses_for_insp = []
+            if selected_vtype_insp != "-- اختر --" and not buses_insp_info.empty:
+                matched_insp_df = buses_insp_info[buses_insp_info["VehicleType"].astype(str).str.strip() == selected_vtype_insp.strip()]
+                filtered_buses_for_insp = matched_insp_df["BusID"].tolist()
+                if not filtered_buses_for_insp:
+                    filtered_buses_for_insp = buses_insp_info["BusID"].tolist()
+            else:
+                filtered_buses_for_insp = buses_insp_info["BusID"].tolist() if not buses_insp_info.empty else []
+
+            with ic2:
+                insp_bus = st.selectbox("رقم المركبة*", options=["-- اختر --"] + filtered_buses_for_insp, key="insp_bus_dyn")
+
+            ic3, ic4 = st.columns(2)
+            with ic3:
+                insp_date = st.date_input("تاريخ الفحص*", datetime.now(), key="insp_date_live")
+            with ic4:
+                auto_expiry_date = insp_date + timedelta(days=365)
+                insp_expiry = st.date_input("تاريخ انتهاء الفحص (سنة من تاريخ الفحص)*", value=auto_expiry_date, key="insp_expiry_live")
+
+            today_date = datetime.now().date()
+            calculated_status = "ساري" if insp_expiry >= today_date else "منتهي"
+
+            ic5, ic6 = st.columns(2)
+            with ic5:
+                st.markdown(f"""
+                    <div style="padding: 6px 0;">
+                        <label style="font-size: 15px; font-weight: bold; color: #475569; display: block; margin-bottom: 6px;">حالة الفحص (تلقائي حسب التاريخ)</label>
+                        <div style="background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 10px; padding: 10px 14px; font-weight: bold; color: {'#166534' if calculated_status == 'ساري' else '#991b1b'};">
+                            {'🟢 ساري' if calculated_status == 'ساري' else '🔴 منتهي'}
+                        </div>
+                    </div>
+                """, unsafe_allow_html=True)
+            with ic6:
+                insp_file = st.file_uploader("ملف تقرير الفحص (PDF / صورة)", type=["pdf", "png", "jpg", "jpeg"], key="insp_file_dyn")
+
+            insp_notes = st.text_area("ملاحظات الفحص", key="insp_notes_dyn")
+
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("حفظ تقرير الفحص الدوري", type="primary", use_container_width=True, key="save_insp_btn_dyn"):
+                if selected_vtype_insp == "-- اختر --" or insp_bus == "-- اختر --":
+                    st.error("⚠️ يرجى اختيار نوع المركبة ورقم المركبة بدقة!")
+                else:
+                    f_insp_path = ""
+                    if insp_file is not None:
+                        f_insp_path = save_upload("inspection_reports", f"insp_{insp_bus}", insp_file)
+                    
+                    conn = sqlite3.connect("fleet.db", timeout=30.0)
+                    cur = conn.cursor()
+                    cur.execute("""
+                        INSERT INTO InspectionReports (BusID, InspectionDate, ExpiryDate, ResultStatus, ReportFile, Notes)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (insp_bus, str(insp_date), str(insp_expiry), calculated_status, f_insp_path, insp_notes))
+                    conn.commit()
+                    conn.close()
+                    st.success("✅ تم حفظ تقرير الفحص الدوري بنجاح!")
+                    st.rerun()
+
+        # فلاتر البحث وعرض السجلات
+        try:
+            conn = sqlite3.connect("fleet.db", timeout=30.0)
+            insp_df = pd.read_sql_query("""
+                SELECT i.*, COALESCE(b.VehicleType, 'غير متوفر') AS VehicleType 
+                FROM InspectionReports i 
+                LEFT JOIN Buses b ON i.BusID = b.BusID
+            """, conn)
+            conn.close()
+            
+            if not insp_df.empty:
+                st.markdown("---")
+                st.markdown("#### 🔍 تصفية سجلات تقارير الفحص الدوري")
+
+                today_date = datetime.now().date()
+
+                status_list = []
+                for _, r_item in insp_df.iterrows():
+                    try:
+                        exp_obj = datetime.strptime(str(r_item['ExpiryDate']).split()[0], "%Y-%m-%d").date()
+                        st_val = "ساري" if exp_obj >= today_date else "منتهي"
+                    except Exception:
+                        st_val = "ساري"
+                    status_list.append(st_val)
+                insp_df["CalculatedState"] = status_list
+
+                flt_c1, flt_c2 = st.columns(2)
+                with flt_c1:
+                    filter_vtype_opts = ["-- الكل --"] + v_types_insp
+                    selected_vtype_filter = st.selectbox("فلترة حسب نوع المركبة", options=filter_vtype_opts, key="filter_insp_vtype")
+                with flt_c2:
+                    filter_state_opts = ["-- الكل --", "ساري", "منتهي"]
+                    selected_state_filter = st.selectbox("فلترة حسب حالة الفحص", options=filter_state_opts, key="filter_insp_state")
+
+                filtered_insp_df = insp_df.copy()
+                if selected_vtype_filter != "-- الكل --":
+                    filtered_insp_df = filtered_insp_df[filtered_insp_df["VehicleType"] == selected_vtype_filter]
+                if selected_state_filter != "-- الكل --":
+                    filtered_insp_df = filtered_insp_df[filtered_insp_df["CalculatedState"] == selected_state_filter]
+
+                st.markdown("---")
+                st.markdown(f"#### 📋 النتائج المطابقة ({len(filtered_insp_df)} تقرير)")
+
+                if filtered_insp_df.empty:
+                    st.info("لا توجد تقارير فحص مطابقة لخيارات الفلترة المحددة.")
+                else:
+                    for _, row in filtered_insp_df.iterrows():
+                        rep_id = row['ReportID']
+                        rep_file = row.get("ReportFile", "")
+                        exp_date_str = str(row['ExpiryDate']).split()[0]
+                        auto_state = row['CalculatedState']
+
+                        badge_bg = "#dcfce7" if auto_state == "ساري" else "#fee2e2"
+                        badge_color = "#166534" if auto_state == "ساري" else "#991b1b"
+
+                        st.markdown(f"""
+                            <div style="background: #ffffff; padding: 16px 20px; border-radius: 12px; border: 1px solid #cbd5e1; margin-bottom: 12px; box-shadow: 0 3px 10px rgba(0,0,0,0.04);">
+                                <div style="font-size: 16.5px; color: #1e293b; margin-bottom: 8px;">
+                                    <b>رقم التقرير:</b> <span style="color: #0369a1;">#{rep_id}</span> | 
+                                    <b>نوع المركبة:</b> {esc(row['VehicleType'])} | 
+                                    <b>رقم المركبة:</b> <span style="color: #0f172a; font-weight: bold;">{esc(row['BusID'])}</span> | 
+                                    <b>تاريخ الفحص:</b> {esc(row['InspectionDate'])} | 
+                                    <b>تاريخ الانتهاء:</b> <span style="color: #b45309; font-weight: bold;">{exp_date_str}</span> | 
+                                    <b>حالة الفحص:</b> <span style="background-color: {badge_bg}; color: {badge_color}; padding: 3px 10px; border-radius: 6px; font-weight: bold;">{auto_state}</span>
+                                </div>
+                                <div style="font-size: 15px; color: #475569; margin-bottom: 14px; background: #f8fafc; padding: 8px 12px; border-radius: 8px;">
+                                    <b>ملاحظات:</b> {esc(row['Notes'])}
+                                </div>
+                        """, unsafe_allow_html=True)
+
+                        btn_c1, btn_c2, btn_c3 = st.columns([1, 1, 1.5])
+                        with btn_c1:
+                            if st.button("✏️ تعديل التقرير", key=f"edit_insp_btn_{rep_id}", use_container_width=True):
+                                st.session_state[f"editing_insp_{rep_id}"] = True
+                        with btn_c2:
+                            if st.button("🗑️ حذف التقرير", key=f"del_insp_btn_{rep_id}", use_container_width=True):
+                                try:
+                                    conn = sqlite3.connect("fleet.db", timeout=30.0)
+                                    cur = conn.cursor()
+                                    cur.execute("DELETE FROM InspectionReports WHERE ReportID=?", (rep_id,))
+                                    conn.commit()
+                                    conn.close()
+                                    st.success(f"🗑️ تم حذف التقرير #{rep_id} بنجاح!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"خطأ أثناء الحذف: {e}")
+                        with btn_c3:
+                            if rep_file and isinstance(rep_file, str) and os.path.exists(rep_file):
+                                with open(rep_file, "rb") as f_rep:
+                                    st.download_button(
+                                        label="⬇️ تحميل/عرض مستند الفحص",
+                                        data=f_rep.read(),
+                                        file_name=os.path.basename(rep_file),
+                                        mime="application/octet-stream",
+                                        key=f"dl_insp_file_{rep_id}",
+                                        use_container_width=True
+                                    )
+                            else:
+                                st.markdown("<div style='text-align: center; padding-top: 6px; color: #94a3b8; font-size: 14.5px;'>لا يوجد مستند مرفق</div>", unsafe_allow_html=True)
+
+                        st.markdown("</div>", unsafe_allow_html=True)
+
+                        if st.session_state.get(f"editing_insp_{rep_id}", False):
+                            with st.form(key=f"edit_insp_form_{rep_id}"):
+                                st.markdown(f"**تعديل تقرير الفحص رقم #{rep_id}**")
+                                all_buses_list = buses_insp_info["BusID"].tolist() if not buses_insp_info.empty else [row["BusID"]]
+                                curr_bus = row["BusID"] if row["BusID"] in all_buses_list else all_buses_list[0]
+                                
+                                ed_insp_bus = st.selectbox("رقم المركبة", options=all_buses_list, index=all_buses_list.index(curr_bus), key=f"ei_bus_{rep_id}")
+                                
+                                try:
+                                    default_insp_dt = datetime.strptime(str(row["InspectionDate"]).split()[0], "%Y-%m-%d").date()
+                                except Exception:
+                                    default_insp_dt = datetime.now().date()
+
+                                try:
+                                    default_exp_dt = datetime.strptime(exp_date_str, "%Y-%m-%d").date()
+                                except Exception:
+                                    default_exp_dt = default_insp_dt + timedelta(days=365)
+
+                                ed_insp_date = st.date_input("تاريخ الفحص", value=default_insp_dt, key=f"ei_date_{rep_id}")
+                                ed_insp_expiry = st.date_input("تاريخ انتهاء الفحص", value=default_exp_dt, key=f"ei_exp_{rep_id}")
+                                
+                                updated_auto_state = "ساري" if ed_insp_expiry >= today_date else "منتهي"
+                                st.info(f"حالة الفحص التلقائية بعد التعديل: {updated_auto_state}")
+
+                                ed_insp_notes = st.text_area("ملاحظات", value=str(row["Notes"] or ""), key=f"ei_notes_{rep_id}")
+
+                                col_esub1, col_esub2 = st.columns(2)
+                                with col_esub1:
+                                    if st.form_submit_button("💾 حفظ التعديلات", type="primary"):
+                                        try:
+                                            conn = sqlite3.connect("fleet.db", timeout=30.0)
+                                            cur = conn.cursor()
+                                            cur.execute("""
+                                                UPDATE InspectionReports 
+                                                SET BusID=?, InspectionDate=?, ExpiryDate=?, ResultStatus=?, Notes=? 
+                                                WHERE ReportID=?
+                                            """, (ed_insp_bus, str(ed_insp_date), str(ed_insp_expiry), updated_auto_state, ed_insp_notes, rep_id))
+                                            conn.commit()
+                                            conn.close()
+                                            st.session_state[f"editing_insp_{rep_id}"] = False
+                                            st.success("✅ تم تحديث تقرير الفحص بنجاح!")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"خطأ: {e}")
+                                with col_esub2:
+                                    if st.form_submit_button("❌ إلغاء"):
+                                        st.session_state[f"editing_insp_{rep_id}"] = False
+                                        st.rerun()
+
+        except Exception as e:
+            st.error(f"خطأ في عرض تقارير الفحص: {e}")
+
+    # 9. صفحة عقود الفنادق
+    elif menu == "عقود الفنادق":
+        st.subheader("🏨 إدارة عقود الفنادق والمحطات وشركات النقل")
+        
+        with st.expander("🏨 إدارة الفنادق والمحطات (إضافة، تعديل، وحذف)"):
+            tab_h_m1, tab_h_m2 = st.tabs(["إدارة الفنادق المسجلة", "إدارة المحطات المسجلة"])
+            
+            with tab_h_m1:
+                try:
+                    conn = sqlite3.connect("fleet.db", timeout=30.0)
+                    hotels_tbl_df = pd.read_sql_query("SELECT HotelName AS 'اسم الفندق' FROM HotelsList", conn)
+                    conn.close()
+                except Exception:
+                    hotels_tbl_df = pd.DataFrame()
+
+                with st.form("add_hotel_direct_form", clear_on_submit=True):
+                    new_h_dir = st.text_input("إضافة فندق جديد", placeholder="مثال: فندق الروضة")
+                    if st.form_submit_button("حفظ الفندق الجديد", type="primary"):
+                        if new_h_dir.strip():
+                            try:
+                                conn = sqlite3.connect("fleet.db", timeout=30.0)
+                                cur = conn.cursor()
+                                cur.execute("INSERT INTO HotelsList (HotelName) VALUES (?)", (new_h_dir.strip(),))
+                                conn.commit()
+                                conn.close()
+                                st.success("✅ تم إضافة الفندق بنجاح!")
+                                st.rerun()
+                            except sqlite3.IntegrityError:
+                                st.error("⚠️ هذا الفندق موجود مسبقاً!")
+
+                if not hotels_tbl_df.empty:
+                    st.markdown("##### تعديل أو حذف فندق مسجل")
+                    with st.form("edit_del_hotel_form"):
+                        h_opts = hotels_tbl_df["اسم الفندق"].tolist()
+                        sel_hotel_target = st.selectbox("اختر الفندق", options=h_opts, key="tab1_sel_hotel")
+                        edited_hotel_name = st.text_input("اسم الفندق المعدل", value=sel_hotel_target)
+                        
+                        col_hb1, col_hb2 = st.columns(2)
+                        with col_hb1:
+                            up_hotel_btn = st.form_submit_button("💾 حفظ تعديل الفندق", type="primary")
+                        with col_hb2:
+                            del_hotel_btn = st.form_submit_button("🗑️ حذف الفندق")
+
+                        if up_hotel_btn:
+                            if not edited_hotel_name.strip():
+                                st.error("⚠️ اسم الفندق لا يمكن أن يكون فارغاً!")
+                            else:
+                                try:
+                                    conn = sqlite3.connect("fleet.db", timeout=30.0)
+                                    cur = conn.cursor()
+                                    cur.execute("UPDATE HotelsList SET HotelName=? WHERE HotelName=?", (edited_hotel_name.strip(), sel_hotel_target))
+                                    cur.execute("UPDATE HotelContracts SET HotelName=? WHERE HotelName=?", (edited_hotel_name.strip(), sel_hotel_target))
+                                    cur.execute("UPDATE SmartParkingInvoices SET HotelName=? WHERE HotelName=?", (edited_hotel_name.strip(), sel_hotel_target))
+                                    conn.commit()
+                                    conn.close()
+                                    st.success("✅ تم تعديل الفندق بنجاح!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"خطأ: {e}")
+
+                        if del_hotel_btn:
+                            try:
+                                conn = sqlite3.connect("fleet.db", timeout=30.0)
+                                cur = conn.cursor()
+                                cur.execute("DELETE FROM HotelsList WHERE HotelName=?", (sel_hotel_target,))
+                                conn.commit()
+                                conn.close()
+                                st.success("🗑️ تم حذف الفندق بنجاح!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"خطأ: {e}")
+
+                    st.markdown("---")
+                    st.markdown("##### قائمة الفنادق الحالية")
+                    st.dataframe(hotels_tbl_df.style.set_properties(**{'text-align': 'center'}), use_container_width=True, hide_index=True)
+
+            with tab_h_m2:
+                try:
+                    conn = sqlite3.connect("fleet.db", timeout=30.0)
+                    stations_tbl_df = pd.read_sql_query("SELECT StationName AS 'اسم المحطة' FROM StationsList", conn)
+                    conn.close()
+                except Exception:
+                    stations_tbl_df = pd.DataFrame()
+
+                with st.form("add_station_direct_form", clear_on_submit=True):
+                    new_s_dir = st.text_input("إضافة محطة جديدة", placeholder="مثال: محطة أجياد")
+                    if st.form_submit_button("حفظ المحطة الجديدة", type="primary"):
+                        if new_s_dir.strip():
+                            try:
+                                conn = sqlite3.connect("fleet.db", timeout=30.0)
+                                cur = conn.cursor()
+                                cur.execute("INSERT INTO StationsList (StationName) VALUES (?)", (new_s_dir.strip(),))
+                                conn.commit()
+                                conn.close()
+                                st.success("✅ تم إضافة المحطة بنجاح!")
+                                st.rerun()
+                            except sqlite3.IntegrityError:
+                                st.error("⚠️ هذه المحطة موجودة مسبقاً!")
+
+                if not stations_tbl_df.empty:
+                    st.markdown("##### تعديل أو حذف محطة مسجلة")
+                    with st.form("edit_del_station_form"):
+                        s_opts = stations_tbl_df["اسم المحطة"].tolist()
+                        sel_station_target = st.selectbox("اختر المحطة", options=s_opts, key="tab2_sel_station")
+                        edited_station_name = st.text_input("اسم المحطة المعدل", value=sel_station_target)
+                        
+                        col_sb1, col_sb2 = st.columns(2)
+                        with col_sb1:
+                            up_station_btn = st.form_submit_button("💾 حفظ تعديل المحطة", type="primary")
+                        with col_sb2:
+                            del_station_btn = st.form_submit_button("🗑️ حذف المحطة")
+
+                        if up_station_btn:
+                            if not edited_station_name.strip():
+                                st.error("⚠️ اسم المحطة لا يمكن أن يكون فارغاً!")
+                            else:
+                                try:
+                                    conn = sqlite3.connect("fleet.db", timeout=30.0)
+                                    cur = conn.cursor()
+                                    cur.execute("UPDATE StationsList SET StationName=? WHERE StationName=?", (edited_station_name.strip(), sel_station_target))
+                                    cur.execute("UPDATE HotelContracts SET StationName=? WHERE StationName=?", (edited_station_name.strip(), sel_station_target))
+                                    cur.execute("UPDATE SmartParkingInvoices SET StationName=? WHERE StationName=?", (edited_station_name.strip(), sel_station_target))
+                                    conn.commit()
+                                    conn.close()
+                                    st.success("✅ تم تعديل المحطة بنجاح!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"خطأ: {e}")
+
+                        if del_station_btn:
+                            try:
+                                conn = sqlite3.connect("fleet.db", timeout=30.0)
+                                cur = conn.cursor()
+                                cur.execute("DELETE FROM StationsList WHERE StationName=?", (sel_station_target,))
+                                conn.commit()
+                                conn.close()
+                                st.success("🗑️ تم حذف المحطة بنجاح!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"خطأ: {e}")
+
+                    st.markdown("---")
+                    st.markdown("##### قائمة المحطات الحالية")
+                    st.dataframe(stations_tbl_df.style.set_properties(**{'text-align': 'center'}), use_container_width=True, hide_index=True)
+
+        try:
+            conn = sqlite3.connect("fleet.db", timeout=30.0)
+            h_df = pd.read_sql_query("SELECT HotelName FROM HotelsList", conn)
+            s_df = pd.read_sql_query("SELECT StationName FROM StationsList", conn)
+            contracts_all = pd.read_sql_query("SELECT ContractID, HotelName, StationName FROM HotelContracts", conn)
+            conn.close()
+            
+            h_list = h_df["HotelName"].dropna().tolist() if not h_df.empty else []
+            s_list = s_df["StationName"].dropna().tolist() if not s_df.empty else []
+        except Exception as e:
+            st.error(f"خطأ في تحميل الفنادق أو المحطات للعقود: {e}")
+            h_list, s_list, contracts_all = [], [], pd.DataFrame()
+
+        with st.expander("➕ إضافة عقد فندق جديد"):
+            with st.form("contract_form", clear_on_submit=True):
+                hc1, hc2, hc3 = st.columns(3)
+                with hc1:
+                    c_hotel = st.selectbox("اسم الفندق (يقرأ من جدول الفنادق)*", options=["-- اختر --"] + h_list, key="new_contract_hotel_select")
+                    c_station = st.selectbox("المحطة (تقرأ من جدول المحطات)*", options=["-- اختر --"] + s_list, key="new_contract_station_select")
+                with hc2:
+                    c_start = st.date_input("بداية العقد", datetime.now())
+                    c_end = st.date_input("نهاية العقد", datetime.now() + timedelta(days=180))
+                with hc3:
+                    c_cost = st.number_input("تكلفة العقد (ريال)", min_value=0.0, value=0.0, step=1000.0)
+                    c_file = st.file_uploader("ملف العقد (PDF / صورة)", type=["pdf", "png", "jpg", "jpeg"])
+                
+                c_notes = st.text_area("بنود وملاحظات العقد")
+
+                if st.form_submit_button("حفظ عقد الفندق", type="primary"):
+                    if c_hotel == "-- اختر --" or c_station == "-- اختر --":
+                        st.error("⚠️ يرجى اختيار اسم الفندق واسم المحطة من القوائم المسجلة بدقة!")
+                    else:
+                        f_c_path = ""
+                        if c_file is not None:
+                            f_c_path = save_upload("hotel_contracts", "hotel_contract", c_file)
+                        
+                        conn = sqlite3.connect("fleet.db", timeout=30.0)
+                        cur = conn.cursor()
+                        cur.execute("""
+                            INSERT INTO HotelContracts (HotelName, StationName, StartDate, EndDate, ContractCost, ContractFile, Notes)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """, (c_hotel, c_station, str(c_start), str(c_end), c_cost, f_c_path, c_notes))
+                        conn.commit()
+                        conn.close()
+                        st.success("✅ تم حفظ عقد الفندق بنجاح!")
+                        st.rerun()
+
+        if not contracts_all.empty:
+            with st.expander("⚙️ تعديل أو حذف عقد فندق"):
+                with st.form("edit_del_contract_form"):
+                    contract_options = {f"عقد رقم {row['ContractID']} - {row['HotelName']} ({row['StationName']})": row['ContractID'] for _, row in contracts_all.iterrows()}
+                    selected_c_label = st.selectbox("اختر العقد للتعديل أو الحذف", options=list(contract_options.keys()), key="select_contract_to_edit")
+                    sel_c_id = contract_options[selected_c_label]
+
+                    try:
+                        conn = sqlite3.connect("fleet.db", timeout=30.0)
+                        c_data = pd.read_sql_query("SELECT * FROM HotelContracts WHERE ContractID = ?", conn, params=(sel_c_id,)).iloc[0]
+                        conn.close()
+                    except Exception:
+                        c_data = None
+
+                    if c_data is not None:
+                        ed_c_hotel = st.selectbox("اسم الفندق", options=h_list, index=h_list.index(c_data["HotelName"]) if c_data["HotelName"] in h_list else 0, key="edit_contract_hotel_select")
+                        ed_c_station = st.selectbox("المحطة", options=s_list, index=s_list.index(c_data["StationName"]) if c_data["StationName"] in s_list else 0, key="edit_contract_station_select")
+                        ed_c_cost = st.number_input("تكلفة العقد (ريال)", value=float(c_data["ContractCost"]))
+                        ed_c_notes = st.text_area("ملاحظات العقد", value=str(c_data["Notes"] or ""))
+
+                        col_cb1, col_cb2 = st.columns(2)
+                        with col_cb1:
+                            up_c = st.form_submit_button("💾 حفظ تعديلات العقد", type="primary")
+                        with col_cb2:
+                            del_c = st.form_submit_button("🗑️ حذف العقد")
+
+                        if up_c:
+                            try:
+                                conn = sqlite3.connect("fleet.db", timeout=30.0)
+                                cur = conn.cursor()
+                                cur.execute("UPDATE HotelContracts SET HotelName=?, StationName=?, ContractCost=?, Notes=? WHERE ContractID=?", 
+                                            (ed_c_hotel, ed_c_station, ed_c_cost, ed_c_notes, sel_c_id))
+                                conn.commit()
+                                conn.close()
+                                st.success("✅ تم تعديل العقد بنجاح!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"خطأ: {e}")
+
+                        if del_c:
+                            try:
+                                conn = sqlite3.connect("fleet.db", timeout=30.0)
+                                cur = conn.cursor()
+                                cur.execute("DELETE FROM HotelContracts WHERE ContractID=?", (sel_c_id,))
+                                conn.commit()
+                                conn.close()
+                                st.success("🗑️ تم حذف العقد بنجاح!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"خطأ: {e}")
+
+        try:
+            conn = sqlite3.connect("fleet.db", timeout=30.0)
+            contracts_df = pd.read_sql_query("SELECT * FROM HotelContracts", conn)
+            conn.close()
+            if not contracts_df.empty:
+                st.markdown("---")
+                st.markdown("#### 📋 قائمة عقود الفنادق المسجلة")
+                st.dataframe(contracts_df.style.set_properties(**{'text-align': 'center'}), use_container_width=True, hide_index=True)
+        except Exception:
+            pass
+
+    # 10. صفحة فواتير المواقف الذكية
+    elif menu == "فواتير المواقف الذكية":
+        st.subheader("🅿️ لوحة إدارة ومتابعة فواتير المواقف الذكية")
+        
+        try:
+            conn = sqlite3.connect("fleet.db", timeout=30.0)
+            h_df_p = pd.read_sql_query("SELECT HotelName FROM HotelsList", conn)
+            s_df_p = pd.read_sql_query("SELECT StationName FROM StationsList", conn)
+            parking_all = pd.read_sql_query("SELECT ParkingID, HotelName, StationName, Cost FROM SmartParkingInvoices", conn)
+            conn.close()
+            
+            h_list_p = h_df_p["HotelName"].dropna().tolist() if not h_df_p.empty else []
+            s_list_p = s_df_p["StationName"].dropna().tolist() if not s_df_p.empty else []
+        except Exception as e:
+            st.error(f"خطأ في تحميل الفنادق أو المحطات لفواتير المواقف: {e}")
+            h_list_p, s_list_p, parking_all = [], [], pd.DataFrame()
+
+        with st.expander("➕ تسجيل فاتورة مواقف جديدة"):
+            with st.form("parking_form", clear_on_submit=True):
+                pc1, pc2, pc3 = st.columns(3)
+                with pc1:
+                    p_hotel = st.selectbox("اسم الفندق (يقرأ من جدول الفنادق)*", options=["-- اختر --"] + h_list_p, key="parking_hotel_select_unique")
+                    p_station = st.selectbox("المحطة (تقرأ من جدول المحطات)*", options=["-- اختر --"] + s_list_p, key="parking_station_select_unique")
+                with pc2:
+                    p_date = st.date_input("تاريخ الفاتورة", datetime.now(), key="p_date_in")
+                    p_cost = st.number_input("التكلفة (ريال)", min_value=0.0, value=0.0, step=50.0, key="p_cost_in")
+                with pc3:
+                    p_file = st.file_uploader("ملف فاتورة المواقف (PDF / صورة)", type=["pdf", "png", "jpg", "jpeg"], key="p_file_up")
+                    p_notes = st.text_input("ملاحظات الفاتورة", key="p_notes_in")
+
+                if st.form_submit_button("حفظ فاتورة المواقف", type="primary"):
+                    if p_hotel == "-- اختر --" or p_station == "-- اختر --":
+                        st.error("⚠️ يرجى اختيار الفندق والمحطة من القوائم المسجلة بدقة!")
+                    else:
+                        f_p_path = ""
+                        if p_file is not None:
+                            f_p_path = save_upload("parking_invoices", "parking_inv", p_file)
+                        
+                        conn = sqlite3.connect("fleet.db", timeout=30.0)
+                        cur = conn.cursor()
+                        cur.execute("""
+                            INSERT INTO SmartParkingInvoices (HotelName, StationName, ParkingDate, Cost, InvoiceFile, Notes)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        """, (p_hotel, p_station, str(p_date), p_cost, f_p_path, p_notes))
+                        conn.commit()
+                        conn.close()
+                        st.success("✅ تم حفظ فاتورة المواقف الذكية بنجاح!")
+                        st.rerun()
+
+        if not parking_all.empty:
+            with st.expander("⚙️ تعديل أو حذف فاتورة مواقف"):
+                with st.form("edit_del_parking_form"):
+                    parking_options = {f"فاتورة رقم {row['ParkingID']} - {row['HotelName']} ({row['Cost']} ريال)": row['ParkingID'] for _, row in parking_all.iterrows()}
+                    selected_p_label = st.selectbox("اختر الفاتورة للتعديل أو الحذف", options=list(parking_options.keys()), key="select_parking_to_edit")
+                    sel_p_id = parking_options[selected_p_label]
+
+                    try:
+                        conn = sqlite3.connect("fleet.db", timeout=30.0)
+                        p_data = pd.read_sql_query("SELECT * FROM SmartParkingInvoices WHERE ParkingID = ?", conn, params=(sel_p_id,)).iloc[0]
+                        conn.close()
+                    except Exception:
+                        p_data = None
+
+                    if p_data is not None:
+                        ed_p_hotel = st.selectbox("اسم الفندق", options=h_list_p, index=h_list_p.index(p_data["HotelName"]) if p_data["HotelName"] in h_list_p else 0, key="edit_parking_hotel_select")
+                        ed_p_station = st.selectbox("المحطة", options=s_list_p, index=s_list_p.index(p_data["StationName"]) if p_data["StationName"] in s_list_p else 0, key="edit_parking_station_select")
+                        ed_p_cost = st.number_input("التكلفة (ريال)", value=float(p_data["Cost"]), key="ed_p_c")
+                        ed_p_notes = st.text_input("ملاحظات الفاتورة", value=str(p_data["Notes"] or ""), key="ed_p_n")
+
+                        col_pb1, col_pb2 = st.columns(2)
+                        with col_pb1:
+                            up_p = st.form_submit_button("💾 حفظ تعديلات الفاتورة", type="primary")
+                        with col_pb2:
+                            del_p = st.form_submit_button("🗑️ حذف الفاتورة")
+
+                        if up_p:
+                            try:
+                                conn = sqlite3.connect("fleet.db", timeout=30.0)
+                                cur = conn.cursor()
+                                cur.execute("UPDATE SmartParkingInvoices SET HotelName=?, StationName=?, Cost=?, Notes=? WHERE ParkingID=?", 
+                                            (ed_p_hotel, ed_p_station, ed_p_cost, ed_p_notes, sel_p_id))
+                                conn.commit()
+                                conn.close()
+                                st.success("✅ تم تعديل الفاتورة بنجاح!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"خطأ: {e}")
+
+                        if del_p:
+                            try:
+                                conn = sqlite3.connect("fleet.db", timeout=30.0)
+                                cur = conn.cursor()
+                                cur.execute("DELETE FROM SmartParkingInvoices WHERE ParkingID=?", (sel_p_id,))
+                                conn.commit()
+                                conn.close()
+                                st.success("🗑️ تم حذف الفاتورة بنجاح!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"خطأ: {e}")
+
+        try:
+            conn = sqlite3.connect("fleet.db", timeout=30.0)
+            parking_df = pd.read_sql_query("SELECT * FROM SmartParkingInvoices", conn)
+            conn.close()
+            if not parking_df.empty:
+                st.markdown("---")
+                st.markdown("#### 📋 سجل فواتير المواقف الذكية")
+                st.dataframe(parking_df.style.set_properties(**{'text-align': 'center'}), use_container_width=True, hide_index=True)
+        except Exception:
+            pass
+
+    # 11. صفحة التقرير الشامل
+    elif menu == "التقرير الشامل":
+        st.subheader("📈 التقرير الشامل لسجلات الصيانة لكل مركبة والمصروفات العامة")
+        
+        try:
+            conn = sqlite3.connect("fleet.db", timeout=30.0)
+            v_types_rep = pd.read_sql_query("SELECT TypeName FROM VehicleTypes", conn)
+            buses_all_rep = pd.read_sql_query("SELECT BusID, VehicleType, Model FROM Buses", conn)
+            logs_rep_df = pd.read_sql_query("""
+                SELECT l.LogID, COALESCE(b.VehicleType, 'مصروفات عامة') AS VehicleType, l.BusID, l.DoneDate, l.JobType, l.Cost, l.Workshop, l.InvoiceStatus, l.Notes 
+                FROM Logs l 
+                LEFT JOIN Buses b ON l.BusID = b.BusID
+            """, conn)
+            conn.close()
+
+            available_types_rep = ["مصروفات عامة"] + (v_types_rep["TypeName"].tolist() if not v_types_rep.empty else [])
+            
+            st.markdown("#### 🔍 فلاتر وتحديد فترة التقرير الشامل")
+            
+            col_f1, col_f2 = st.columns(2)
+            with col_f1:
+                selected_types_multiselect = st.multiselect(
+                    "اختر أنواع المركبات أو المصروفات العامة المطلوبة*",
+                    options=available_types_rep,
+                    default=available_types_rep,
+                    key="comprehensive_report_types_multiselect"
+                )
+            with col_f2:
+                col_d1, col_d2 = st.columns(2)
+                with col_d1:
+                    start_date_filter = st.date_input("فترة التقرير من", datetime.now().replace(day=1))
+                with col_d2:
+                    end_date_filter = st.date_input("إلى تاريخ", datetime.now())
+
+            st.markdown("---")
+
+            if not selected_types_multiselect:
+                st.warning("⚠️ يرجى اختيار تصنيف واحد على الأقل لعرض التقرير الشامل.")
+            else:
+                filtered_logs_df = logs_rep_df.copy()
+                if not filtered_logs_df.empty:
+                    filtered_logs_df["DoneDateObj"] = pd.to_datetime(filtered_logs_df["DoneDate"], errors='coerce').dt.date
+                    filtered_logs_df = filtered_logs_df[
+                        (filtered_logs_df["DoneDateObj"] >= start_date_filter) & 
+                        (filtered_logs_df["DoneDateObj"] <= end_date_filter) &
+                        (filtered_logs_df["VehicleType"].isin(selected_types_multiselect))
+                    ]
+
+                total_fleet_cost = 0.0
+                rendered_sections_count = 0
+
+                st.markdown(f"### 📋 تقرير الأسطول والمصروفات العامة الشامل")
+                st.markdown(f"<div style='color: #555; margin-bottom: 15px;'>فترة التقرير من <b>{esc(start_date_filter)}</b> إلى <b>{esc(end_date_filter)}</b></div>", unsafe_allow_html=True)
+
+                if "مصروفات عامة" in selected_types_multiselect:
+                    general_logs = filtered_logs_df[filtered_logs_df["BusID"] == "مصروفات عامة"] if not filtered_logs_df.empty else pd.DataFrame()
+                    if not general_logs.empty:
+                        rendered_sections_count += 1
+                        gen_total_cost = general_logs["Cost"].sum()
+                        total_fleet_cost += gen_total_cost
+
+                        st.markdown(f"""
+                            <div style="background: #ffffff; padding: 15px; border-radius: 10px; border: 1px solid #cbd5e1; margin-bottom: 15px; direction: rtl; text-align: right;">
+                                <h4 style="color: #0369a1; margin-bottom: 10px;">📌 المصروفات العامة (غير المرتبطة بمركبة)</h4>
+                        """, unsafe_allow_html=True)
+
+                        sub_table_gen = general_logs[["BusID", "DoneDate", "JobType", "Cost", "Workshop", "InvoiceStatus"]].rename(columns={
+                            "BusID": "النوع",
+                            "DoneDate": "التاريخ",
+                            "JobType": "البند / العمل",
+                            "Cost": "التكلفة (ريال)",
+                            "Workshop": "الجهة",
+                            "InvoiceStatus": "الحالة"
+                        })
+                        st.dataframe(sub_table_gen.style.set_properties(**{'text-align': 'center'}), use_container_width=True, hide_index=True)
+                        st.markdown(f"<div style='font-weight: bold; color: #1e3a8a; text-align: left;'>إجمالي المصروفات العامة: {gen_total_cost:,.1f} ريال</div>", unsafe_allow_html=True)
+                        st.markdown("</div>", unsafe_allow_html=True)
+
+                vehicle_types_only = [t for t in selected_types_multiselect if t != "مصروفات عامة"]
+                target_buses_df = buses_all_rep[buses_all_rep["VehicleType"].isin(vehicle_types_only)] if vehicle_types_only else pd.DataFrame()
+
+                if not target_buses_df.empty:
+                    for _, bus_row in target_buses_df.iterrows():
+                        b_id = bus_row["BusID"]
+                        v_type = bus_row["VehicleType"]
+
+                        bus_logs = filtered_logs_df[filtered_logs_df["BusID"] == b_id] if not filtered_logs_df.empty else pd.DataFrame()
+                        
+                        if bus_logs.empty:
+                            continue
+
+                        rendered_sections_count += 1
+                        bus_total_cost = bus_logs["Cost"].sum()
+                        total_fleet_cost += bus_total_cost
+
+                        st.markdown(f"""
+                            <div style="background: #ffffff; padding: 15px; border-radius: 10px; border: 1px solid #cbd5e1; margin-bottom: 15px; direction: rtl; text-align: right;">
+                                <h4 style="color: #0369a1; margin-bottom: 10px;">{esc(v_type)} - رقم المركبة : {esc(b_id)}</h4>
+                        """, unsafe_allow_html=True)
+
+                        sub_table = bus_logs[["BusID", "DoneDate", "JobType", "Cost", "Workshop", "InvoiceStatus"]].rename(columns={
+                            "BusID": "الرقم",
+                            "DoneDate": "التاريخ",
+                            "JobType": "نوع العمل",
+                            "Cost": "التكلفة (ريال)",
+                            "Workshop": "الورشة",
+                            "InvoiceStatus": "الحالة"
+                        })
+                        st.dataframe(sub_table.style.set_properties(**{'text-align': 'center'}), use_container_width=True, hide_index=True)
+                        st.markdown(f"<div style='font-weight: bold; color: #1e3a8a; text-align: left;'>إجمالي تكلفة المركبة رقم : {esc(b_id)} ({esc(v_type)}) : {bus_total_cost:,.1f} ريال</div>", unsafe_allow_html=True)
+                        st.markdown("</div>", unsafe_allow_html=True)
+
+                if rendered_sections_count == 0:
+                    st.info("لا توجد أي سجلات مطابقة للاختيارات والفترة الزمنية المحددة.")
+                else:
+                    st.markdown("---")
+                    st.metric("إجمالي التكلفة الكلية للأسطول والمصروفات المختارة", f"{total_fleet_cost:,.1f} ريال")
+                    st.markdown("<br>", unsafe_allow_html=True)
+
+                    types_str_label = "، ".join(selected_types_multiselect)
+                    logo_img_tag = f'<img src="data:image/jpeg;base64,{logo_b64}" style="width: 95px; height: 95px; border-radius: 50%; object-fit: cover; border: 3px solid #0369a1; display: block; margin: 0 auto 6px auto;">' if logo_b64 else ''
+
+                    buses_sections_html = ""
+                    
+                    if "مصروفات عامة" in selected_types_multiselect:
+                        general_logs = filtered_logs_df[filtered_logs_df["BusID"] == "مصروفات عامة"] if not filtered_logs_df.empty else pd.DataFrame()
+                        if not general_logs.empty:
+                            rows_gen_h = ""
+                            for _, r in general_logs.iterrows():
+                                rows_gen_h += f"""
+                                <tr>
+                                    <td>مصروفات عامة</td>
+                                    <td>{esc(r['DoneDate'])}</td>
+                                    <td>{esc(r['JobType'])}</td>
+                                    <td>{float(r['Cost']):,.1f} ريال</td>
+                                    <td>{esc(r['Workshop'])}</td>
+                                    <td>{esc(r['InvoiceStatus'])}</td>
+                                </tr>
+                                """
+                            gen_total_cost = general_logs["Cost"].sum()
+                            buses_sections_html += f"""
+                            <div class="bus-section">
+                                <h3>📌 المصروفات العامة (غير المرتبطة بمركبة)</h3>
+                                <table>
+                                   <thead>
+                                        <tr>
+                                            <th>النوع</th>
+                                            <th>التاريخ</th>
+                                            <th>البند / العمل</th>
+                                            <th>التكلفة</th>
+                                            <th>الجهة</th>
+                                            <th>الحالة</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {rows_gen_h}
+                                    </tbody>
+                                </table>
+                                <div class="bus-total">إجمالي المصروفات العامة: {gen_total_cost:,.1f} ريال</div>
+                            </div>
+                            """
+
+                    if not target_buses_df.empty:
+                        for _, bus_row in target_buses_df.iterrows():
+                            b_id = bus_row["BusID"]
+                            v_type = bus_row["VehicleType"]
+                            bus_logs = filtered_logs_df[filtered_logs_df["BusID"] == b_id] if not filtered_logs_df.empty else pd.DataFrame()
+                            if bus_logs.empty:
+                                continue
+                            bus_total_cost = bus_logs["Cost"].sum()
+                            rows_h = ""
+                            for _, r in bus_logs.iterrows():
+                                rows_h += f"""
+                                <tr>
+                                    <td>{esc(r['BusID'])}</td>
+                                    <td>{esc(r['DoneDate'])}</td>
+                                    <td>{esc(r['JobType'])}</td>
+                                    <td>{float(r['Cost']):,.1f} ريال</td>
+                                    <td>{esc(r['Workshop'])}</td>
+                                    <td>{esc(r['InvoiceStatus'])}</td>
+                                </tr>
+                                """
+                            buses_sections_html += f"""
+                            <div class="bus-section">
+                                <h3>{esc(v_type)} - رقم المركبة : {esc(b_id)}</h3>
+                                <table>
+                                   <thead>
+                                        <tr>
+                                            <th>الرقم</th>
+                                            <th>التاريخ</th>
+                                            <th>نوع العمل</th>
+                                            <th>التكلفة</th>
+                                            <th>الورشة</th>
+                                            <th>الحالة</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {rows_h}
+                                    </tbody>
+                                </table>
+                                <div class="bus-total">إجمالي تكلفة المركبة رقم : {esc(b_id)} ({esc(v_type)}) : {bus_total_cost:,.1f} ريال</div>
+                            </div>
+                            """
+
+                    html_report = f"""
+                    <!DOCTYPE html>
+                    <html dir="rtl" lang="ar">
+                    <head>
+                        <meta charset="UTF-8">
+                        <title>التقرير الشامل للأسطول والمصروفات</title>
+                        <style>
+                            @media print {{
+                                @page {{ size: A4; margin: 8mm; }}
+                                body {{ background: #fff !important; -webkit-print-color-adjust: exact; }}
+                                .report-border-wrapper {{
+                                    border: 3px double #0369a1 !important;
+                                    padding: 15px !important;
+                                    min-height: 94vh;
+                                    display: flex;
+                                    flex-direction: column;
+                                    justify-content: space-between;
+                                }}
+                            }}
+                            body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; direction: rtl; text-align: right; padding: 10px; background-color: #fff; color: #1e293b; margin: 0; }}
+                            
+                            .report-border-wrapper {{
+                                border: 3px double #0369a1;
+                                border-radius: 12px;
+                                padding: 20px;
+                                background-color: #ffffff;
+                                box-sizing: border-box;
+                            }}
+
+                            .top-header {{ 
+                                display: flex; 
+                                justify-content: space-between; 
+                                align-items: center; 
+                                border-bottom: 2px solid #0369a1; 
+                                padding-bottom: 12px; 
+                                margin-bottom: 15px; 
+                            }}
+                            
+                            .company-title-right {{
+                                text-align: center;
+                                flex: 1.2;
+                            }}
+                            .company-title-right h2 {{ 
+                                color: #0369a1; 
+                                margin: 0; 
+                                font-size: 19px; 
+                                font-weight: 800;
+                                line-height: 1.5;
+                            }}
+                            .company-title-right h2 span {{
+                                display: block;
+                                text-align: center;
+                                margin-top: 2px;
+                            }}
+
+                            .company-logo-center {{
+                                text-align: center;
+                                flex: 1;
+                            }}
+
+                            .company-title-left {{
+                                text-align: center;
+                                flex: 1.2;
+                                direction: ltr;
+                            }}
+                            .company-title-left h3 {{
+                                color: #0369a1;
+                                margin: 0;
+                                font-size: 14.5px;
+                                font-weight: 750;
+                                line-height: 1.5;
+                            }}
+                            .company-title-left h3 span {{
+                                display: block;
+                                text-align: center;
+                                margin-top: 2px;
+                            }}
+
+                            .meta-info {{ background: #f8fafc; border: 1px solid #e2e8f0; border-right: 4px solid #0369a1; padding: 10px 15px; border-radius: 6px; margin-bottom: 20px; font-size: 14px; }}
+                            .bus-section {{ margin-bottom: 18px; border: 1px solid #cbd5e1; padding: 12px; border-radius: 8px; background: #fafafa; page-break-inside: avoid; }}
+                            .bus-section h3 {{ color: #1e3a8a; margin-top: 0; font-size: 15px; border-bottom: 2px solid #e2e8f0; padding-bottom: 6px; }}
+                            table {{ width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 13px; }}
+                            th {{ background-color: #0369a1; color: white; padding: 6px; border: 1px solid #0284c7; text-align: center; }}
+                            td {{ padding: 6px; border: 1px solid #cbd5e1; text-align: center; background: #fff; }}
+                            .bus-total {{ margin-top: 8px; font-weight: bold; color: #1e3a8a; text-align: left; font-size: 13.5px; }}
+                            .grand-total {{ margin-top: 15px; font-size: 16px; font-weight: bold; text-align: center; padding: 10px; background: #fef08a; border-radius: 6px; border: 1px solid #facc15; color: #854d0e; page-break-inside: avoid; }}
+                            
+                            .footer-official-info {{
+                                margin-top: 40px;
+                                border-top: 1px solid #cbd5e1;
+                                padding-top: 10px;
+                                text-align: center;
+                                font-size: 11px;
+                                color: #475569;
+                                line-height: 1.5;
+                            }}
+                            .footer-official-info div {{
+                                margin-bottom: 2px;
+                            }}
+                        </style>
+                    </head>
+                    <body>
+                        <div class="report-border-wrapper">
+                            <div>
+                                <div class="top-header">
+                                    <div class="company-title-right">
+                                        <h2>شركة بروج العالم للنقل <span>البري</span></h2>
+                                    </div>
+                                    <div class="company-logo-center">
+                                        {logo_img_tag}
+                                    </div>
+                                    <div class="company-title-left">
+                                        <h3>Burooj Al-Alam Land Transport <span>Company</span></h3>
+                                    </div>
+                                </div>
+                                <div class="meta-info">
+                                    <b>فترة التقرير:</b> من {esc(start_date_filter)} إلى {esc(end_date_filter)} &nbsp;|&nbsp; <b>التصنيفات المختارة:</b> {esc(types_str_label)}
+                                </div>
+                                {buses_sections_html}
+                                <div class="grand-total">
+                                    إجمالي التكلفة الكلية للأسطول والمصروفات المختارة: {total_fleet_cost:,.1f} ريال
+                                </div>
+                            </div>
+
+                            <div class="footer-official-info">
+                                <div>مكة المكرمة – بطحاء قريش – الشارع العام – تلفون : ( سنترال ) : 5771177 2 966+ فاكس :5729455 2 966+ ص.ب : 5941</div>
+                                <div>Makkah Al-Mukaramah – main road – Bathaa Quraish – Tel : +966 2 5771177 – Fax : +966 2 5729455 – P.O.Box : 5941</div>
+                                <div>broujalalam@hotmail.com</div>
+                            </div>
+                        </div>
+
+                        <script>
+                            window.onload = function() {{
+                                setTimeout(function() {{
+                                    window.print();
+                                }}, 500);
+                            }};
+                        </script>
+                    </body>
+                    </html>
+                    """
+
+                    temp_file_name = f"fleet_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+                    html_bytes = html_report.encode("utf-8")
+
+                    st.download_button(
+                        label="🖨️ طباعة وحفظ التقرير الشامل بالشكل الاحترافي الجديد",
+                        data=html_bytes,
+                        file_name=temp_file_name,
+                        mime="text/html",
+                        type="primary",
+                        use_container_width=True
+                    )
+
+        except Exception as e:
+            st.error(f"خطأ أثناء توليد التقرير: {e}")
+
+    # 12. صفحة بيان الركاب
+    elif menu == "بيان الركاب":
+        st.subheader("👥 طباعة بيان الركاب الفوري (بدون حفظ في قاعدة البيانات)")
+        
+        if "manifest_data_ready" not in st.session_state:
+            st.session_state["manifest_data_ready"] = False
+        if "manifest_file_bytes" not in st.session_state:
+            st.session_state["manifest_file_bytes"] = None
+        if "manifest_file_name" not in st.session_state:
+            st.session_state["manifest_file_name"] = ""
+
+        with st.form("passenger_manifest_form"):
+            st.markdown("#### 📝 بيانات الرحلة والأسطول")
+            pc_col1, pc_col2, pc_col3 = st.columns(3)
+            with pc_col1:
+                camp_name = st.text_input("اسم الحملة", value="رحلات بروج العالم")
+                driver_name = st.text_input("اسم السائق", value="")
+                mobile_num = st.text_input("رقم الجوال", value="")
+            with pc_col2:
+                route_plan = st.text_input("الخطة (خط السير)", value="المدينة المنورة - مكة المكرمة")
+                bus_plate = st.text_input("رقم اللوحة", value="")
+                supervisor = st.text_input("المشرف", value="")
+            with pc_col3:
+                trip_date = st.date_input("تاريخ الذهاب", datetime.now())
+                operation_num = st.text_input("تشغيلة رقم", value="")
+                passengers_count = st.number_input("عدد الركاب", min_value=1, value=5, step=1)
+
+            st.markdown("---")
+            st.markdown("#### 📋 إدخال بيانات الركاب للرحلة الحالية")
+            
+            p_rows_data = []
+            num_p = int(passengers_count)
+            for i in range(num_p):
+                st.markdown(f"**الراكب رقم {i+1}**")
+                r_c1, r_c2, r_c3 = st.columns([2, 2, 1])
+                with r_c1:
+                    p_name = st.text_input(f"اسم الراكب {i+1}", value="", key=f"p_name_{i}")
+                with r_c2:
+                    p_id_num = st.text_input(f"رقم الهوية / الإقامة {i+1}", value="", key=f"p_id_{i}")
+                with r_c3:
+                    p_nat = st.text_input(f"الجنسية {i+1}", value="باكستاني", key=f"p_nat_{i}")
+                p_rows_data.append({"index": i+1, "name": p_name, "id": p_id_num, "nationality": p_nat})
+
+            submit_generate_manifest = st.form_submit_button("⚙️ تجهيز بيان الركاب للطباعة", type="primary")
+
+            if submit_generate_manifest:
+                logo_img_tag = f'<img src="data:image/jpeg;base64,{logo_b64}" style="width: 95px; height: 95px; border-radius: 50%; object-fit: cover; border: 3px solid #0369a1; display: block; margin: 0 auto 6px auto;">' if logo_b64 else ''
+
+                table_passengers_html = ""
+                for p in p_rows_data:
+                    table_passengers_html += f"""
+                    <tr>
+                        <td>{p['index']}</td>
+                        <td>{esc(p['name'])}</td>
+                        <td>{esc(p['id'])}</td>
+                        <td>{esc(p['nationality'])}</td>
+                    </tr>
+                    """
+
+                manifest_html_content = f"""
+                <!DOCTYPE html>
+                <html dir="rtl" lang="ar">
+                <head>
+                    <meta charset="UTF-8">
+                    <title>بيان الركاب - شركة بروج العالم للنقل البري</title>
+                    <style>
+                        @media print {{
+                            @page {{ size: A4; margin: 8mm; }}
+                            body {{ background: #fff !important; -webkit-print-color-adjust: exact; }}
+                            .report-border-wrapper {{
+                                border: 3px double #0369a1 !important;
+                                padding: 15px !important;
+                                min-height: 94vh;
+                                display: flex;
+                                flex-direction: column;
+                                justify-content: space-between;
+                            }}
+                        }}
+                        body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; direction: rtl; text-align: right; padding: 10px; background-color: #fff; color: #1e293b; margin: 0; }}
+                        
+                        .report-border-wrapper {{
+                            border: 3px double #0369a1;
+                            border-radius: 12px;
+                            padding: 20px;
+                            background-color: #ffffff;
+                            box-sizing: border-box;
+                        }}
+
+                        .top-header {{ 
+                            display: flex; 
+                            justify-content: space-between; 
+                            align-items: center; 
+                            border-bottom: 2px solid #0369a1; 
+                            padding-bottom: 12px; 
+                            margin-bottom: 15px; 
+                        }}
+                        
+                        .company-title-right {{
+                            text-align: center;
+                            flex: 1.2;
+                        }}
+                        .company-title-right h2 {{ 
+                            color: #0369a1; 
+                            margin: 0; 
+                            font-size: 19px; 
+                            font-weight: 800;
+                            line-height: 1.5;
+                        }}
+                        .company-title-right h2 span {{
+                            display: block;
+                            text-align: center;
+                            margin-top: 2px;
+                        }}
+
+                        .company-logo-center {{
+                            text-align: center;
+                            flex: 1;
+                        }}
+
+                        .company-title-left {{
+                            text-align: center;
+                            flex: 1.2;
+                            direction: ltr;
+                        }}
+                        .company-title-left h3 {{
+                            color: #0369a1;
+                            margin: 0;
+                            font-size: 14.5px;
+                            font-weight: 750;
+                            line-height: 1.5;
+                        }}
+                        .company-title-left h3 span {{
+                            display: block;
+                            text-align: center;
+                            margin-top: 2px;
+                        }}
+                        
+                        .trip-info-box {{
+                            background: #f8fafc;
+                            border: 1px solid #e2e8f0;
+                            border-right: 4px solid #0369a1;
+                            border-radius: 6px;
+                            padding: 12px 16px;
+                            margin-bottom: 16px;
+                            display: flex;
+                            justify-content: space-between;
+                            gap: 15px;
+                        }}
+                        .trip-column {{
+                            flex: 1;
+                        }}
+                        .trip-field {{
+                            font-size: 13px;
+                            margin-bottom: 6px;
+                            color: #334155;
+                        }}
+                        .trip-field b {{
+                            color: #0f172a;
+                            margin-left: 6px;
+                        }}
+                        
+                        table.passengers-table {{ width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }}
+                        table.passengers-table th {{ background-color: #0369a1; color: white; padding: 6px; border: 1px solid #0284c7; text-align: center; }}
+                        table.passengers-table td {{ padding: 6px; border: 1px solid #cbd5e1; text-align: center; background: #fff; color: #1e293b; }}
+                        
+                        .footer-official-info {{
+                            margin-top: 30px;
+                            border-top: 1px solid #cbd5e1;
+                            padding-top: 10px;
+                            text-align: center;
+                            font-size: 11px;
+                            color: #475569;
+                            line-height: 1.5;
+                        }}
+                        .footer-official-info div {{
+                            margin-bottom: 2px;
+                        }}
+                    </style>
+                </head>
+                <body>
+                    <div class="report-border-wrapper">
+                        <div>
+                            <div class="top-header">
+                                <div class="company-title-right">
+                                    <h2>شركة بروج العالم للنقل <span>البري</span></h2>
+                                </div>
+                                <div class="company-logo-center">
+                                    {logo_img_tag}
+                                </div>
+                                <div class="company-title-left">
+                                    <h3>Burooj Al-Alam Land Transport <span>Company</span></h3>
+                                </div>
+                            </div>
+
+                            <div class="trip-info-box">
+                                <div class="trip-column">
+                                    <div class="trip-field"><b>اسم الحملة:</b> {esc(camp_name)}</div>
+                                    <div class="trip-field"><b>الخطة:</b> {esc(route_plan)}</div>
+                                    <div class="trip-field"><b>تاريخ الذهاب:</b> {esc(trip_date)}</div>
+                                </div>
+                                <div class="trip-column">
+                                    <div class="trip-field"><b>اسم السائق:</b> {esc(driver_name)}</div>
+                                    <div class="trip-field"><b>رقم اللوحة:</b> {esc(bus_plate)}</div>
+                                    <div class="trip-field"><b>تشغيلة رقم:</b> {esc(operation_num)}</div>
+                                </div>
+                                <div class="trip-column">
+                                    <div class="trip-field"><b>رقم الجوال:</b> {esc(mobile_num)}</div>
+                                    <div class="trip-field"><b>المشرف:</b> {esc(supervisor)}</div>
+                                    <div class="trip-field"><b>عدد الركاب:</b> {num_p}</div>
+                                </div>
+                            </div>
+
+                            <table class="passengers-table">
+                               <thead>
+                                    <tr>
+                                        <th style="width: 10%;">م</th>
+                                        <th style="width: 45%;">اسم الراكب</th>
+                                        <th style="width: 30%;">رقم الهوية / الإقامة</th>
+                                        <th style="width: 15%;">الجنسية</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {table_passengers_html}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="footer-official-info">
+                            <div>مكة المكرمة – بطحاء قريش – الشارع العام – تلفون : ( سنترال ) : 5771177 2 966+ فاكس :5729455 2 966+ ص.ب : 5941</div>
+                            <div>Makkah Al-Mukaramah – main road – Bathaa Quraish – Tel : +966 2 5771177 – Fax : +966 2 5729455 – P.O.Box : 5941</div>
+                            <div>broujalalam@hotmail.com</div>
+                        </div>
+                    </div>
+
+                    <script>
+                        window.onload = function() {{
+                            setTimeout(function() {{
+                                window.print();
+                            }}, 500);
+                        }};
+                    </script>
+                </body>
+                </html>
+                """
+
+                st.session_state["manifest_file_name"] = f"passenger_manifest_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+                st.session_state["manifest_file_bytes"] = manifest_html_content.encode("utf-8")
+                st.session_state["manifest_data_ready"] = True
+                st.success("✅ تم تجهيز بيان الركاب بالشكل الجمالي والتوسيط المطلوب!")
+
+        if st.session_state.get("manifest_data_ready", False):
+            st.markdown("---")
+            st.download_button(
+                label="🖨️ اضغط هنا لتحميل وطباعة بيان الركاب",
+                data=st.session_state["manifest_file_bytes"],
+                file_name=st.session_state["manifest_file_name"],
+                mime="text/html",
+                type="primary",
+                use_container_width=True
+            )
+
+    # 13. صفحة النسخ الاحتياطي للداتا
+    elif menu == "النسخ الاحتياطي للداتا":
+        st.subheader("💾 النسخ الاحتياطي واستعادة قاعدة بيانات النظام")
+        if os.path.exists("fleet.db"):
+            with open("fleet.db", "rb") as f_db:
+                db_bytes = f_db.read()
+            st.download_button(
+                label="⬇️ تحميل قاعدة بيانات النظام (fleet.db)",
+                data=db_bytes,
+                file_name=f"fleet_backup_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.db",
+                mime="application/octet-stream",
+                type="primary",
+                use_container_width=True
+            )
