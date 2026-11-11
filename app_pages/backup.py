@@ -1,4 +1,4 @@
-"""النسخ الاحتياطي: إنشاء وتنزيل واستعادة قاعدة بيانات النظام (مدير فقط)."""
+"""النسخ الاحتياطي: إنشاء وتنزيل واستعادة قاعدة بيانات النظام."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import streamlit as st
 from core import auth, db, ui
 from core.config import BACKUP_DIR, DB_PATH
 
-auth.require_admin()
+auth.require_login()
 ui.page_header(
     "النسخ الاحتياطي",
     "حماية بيانات الأسطول وإنشاء نسخ آمنة واستعادتها عند الحاجة",

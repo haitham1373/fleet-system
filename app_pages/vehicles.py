@@ -476,108 +476,103 @@ with st.expander("⚙️ تعديل أو حذف مركبة مسجلة"):
                     except Exception as error:
                         st.error(f"تعذر تحديث المركبة: {error}")
 
-            if auth.is_admin():
-                st.divider()
-                st.markdown("##### حذف المركبة")
-                related_logs = int(
-                    db.scalar(
-                        "SELECT COUNT(*) FROM Logs WHERE BusID=?",
-                        (selected_bus_id,),
-                        default=0,
-                    )
-                    or 0
+            st.divider()
+            st.markdown("##### حذف المركبة")
+            related_logs = int(
+                db.scalar(
+                    "SELECT COUNT(*) FROM Logs WHERE BusID=?",
+                    (selected_bus_id,),
+                    default=0,
                 )
-                related_inspections = int(
-                    db.scalar(
-                        "SELECT COUNT(*) FROM InspectionReports WHERE BusID=?",
-                        (selected_bus_id,),
-                        default=0,
-                    )
-                    or 0
+                or 0
+            )
+            related_inspections = int(
+                db.scalar(
+                    "SELECT COUNT(*) FROM InspectionReports WHERE BusID=?",
+                    (selected_bus_id,),
+                    default=0,
                 )
-                related_batteries = int(
-                    db.scalar(
-                        "SELECT COUNT(*) FROM Batteries WHERE BusID=?",
-                        (selected_bus_id,),
-                        default=0,
-                    )
-                    or 0
+                or 0
+            )
+            related_batteries = int(
+                db.scalar(
+                    "SELECT COUNT(*) FROM Batteries WHERE BusID=?",
+                    (selected_bus_id,),
+                    default=0,
                 )
-                related_total = (
-                    related_logs + related_inspections + related_batteries
+                or 0
+            )
+            related_total = related_logs + related_inspections + related_batteries
+
+            if related_total:
+                st.warning(
+                    "هذه المركبة مرتبطة بـ "
+                    f"{related_logs} سجل صيانة، "
+                    f"{related_inspections} تقرير فحص، "
+                    f"{related_batteries} سجل بطارية."
                 )
 
-                if related_total:
-                    st.warning(
-                        "هذه المركبة مرتبطة بـ "
-                        f"{related_logs} سجل صيانة، "
-                        f"{related_inspections} تقرير فحص، "
-                        f"{related_batteries} سجل بطارية."
+            confirm_delete = st.checkbox(
+                "أؤكد رغبتي في حذف المركبة",
+                key="confirm_delete_vehicle",
+            )
+            cascade_delete = st.checkbox(
+                "حذف السجلات المرتبطة أيضاً (صيانة، فحص، بطاريات)",
+                key="cascade_delete_vehicle",
+            )
+
+            if st.button(
+                "حذف المركبة نهائياً",
+                type="secondary",
+                icon=":material/delete:",
+                width="stretch",
+            ):
+                if not confirm_delete:
+                    st.error("يرجى تأكيد الحذف أولاً.")
+                elif related_total and not cascade_delete:
+                    st.error(
+                        "لا يمكن حذف المركبة لوجود سجلات مرتبطة. "
+                        "فعّل خيار حذف السجلات المرتبطة أو احتفظ بالمركبة."
                     )
-
-                confirm_delete = st.checkbox(
-                    "أؤكد رغبتي في حذف المركبة",
-                    key="confirm_delete_vehicle",
-                )
-                cascade_delete = st.checkbox(
-                    "حذف السجلات المرتبطة أيضاً (صيانة، فحص، بطاريات)",
-                    key="cascade_delete_vehicle",
-                )
-
-                if st.button(
-                    "حذف المركبة نهائياً",
-                    type="secondary",
-                    icon=":material/delete:",
-                    width="stretch",
-                ):
-                    if not confirm_delete:
-                        st.error("يرجى تأكيد الحذف أولاً.")
-                    elif related_total and not cascade_delete:
-                        st.error(
-                            "لا يمكن حذف المركبة لوجود سجلات مرتبطة. "
-                            "فعّل خيار حذف السجلات المرتبطة أو احتفظ بالمركبة."
-                        )
-                    else:
-                        try:
-                            with db.get_conn() as connection:
-                                if cascade_delete:
-                                    connection.execute(
-                                        "DELETE FROM Logs WHERE BusID=?",
-                                        (selected_bus_id,),
-                                    )
-                                    connection.execute(
-                                        "DELETE FROM InspectionReports WHERE BusID=?",
-                                        (selected_bus_id,),
-                                    )
-                                    connection.execute(
-                                        "DELETE FROM Batteries WHERE BusID=?",
-                                        (selected_bus_id,),
-                                    )
+                else:
+                    try:
+                        with db.get_conn() as connection:
+                            if cascade_delete:
                                 connection.execute(
-                                    "UPDATE HotelContracts SET BusID=NULL WHERE BusID=?",
+                                    "DELETE FROM Logs WHERE BusID=?",
                                     (selected_bus_id,),
                                 )
                                 connection.execute(
-                                    "UPDATE SmartParkingInvoices SET BusID=NULL WHERE BusID=?",
+                                    "DELETE FROM InspectionReports WHERE BusID=?",
                                     (selected_bus_id,),
                                 )
                                 connection.execute(
-                                    "DELETE FROM Buses WHERE BusID=?",
+                                    "DELETE FROM Batteries WHERE BusID=?",
                                     (selected_bus_id,),
                                 )
-                            db.log_audit(
-                                auth.current_username(),
-                                "حذف",
-                                "المركبات",
-                                selected_bus_id,
-                                f"حذف السجلات المرتبطة: {cascade_delete}",
+                            connection.execute(
+                                "UPDATE HotelContracts SET BusID=NULL WHERE BusID=?",
+                                (selected_bus_id,),
                             )
-                            st.success("تم حذف المركبة بنجاح.")
-                            st.rerun()
-                        except Exception as error:
-                            st.error(f"تعذر حذف المركبة: {error}")
-            else:
-                st.caption("حذف المركبات متاح لمدير النظام فقط.")
+                            connection.execute(
+                                "UPDATE SmartParkingInvoices SET BusID=NULL WHERE BusID=?",
+                                (selected_bus_id,),
+                            )
+                            connection.execute(
+                                "DELETE FROM Buses WHERE BusID=?",
+                                (selected_bus_id,),
+                            )
+                        db.log_audit(
+                            auth.current_username(),
+                            "حذف",
+                            "المركبات",
+                            selected_bus_id,
+                            f"حذف السجلات المرتبطة: {cascade_delete}",
+                        )
+                        st.success("تم حذف المركبة بنجاح.")
+                        st.rerun()
+                    except Exception as error:
+                        st.error(f"تعذر حذف المركبة: {error}")
 
 # ---------------------------------------------------------------------------
 # جدول الأسطول

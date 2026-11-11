@@ -28,7 +28,11 @@ vehicle_types = [
 with st.expander("🔍 خيارات تصفية التقرير الشامل", expanded=True):
     col1, col2 = st.columns(2)
     with col1:
-        start_date = st.date_input("من تاريخ", value=date(2026, 10, 1), key="rep_start_date")
+        start_date = st.date_input(
+            "من تاريخ",
+            value=date(date.today().year, 1, 1),
+            key="rep_start_date",
+        )
     with col2:
         end_date = st.date_input("إلى تاريخ", value=date.today(), key="rep_end_date")
         

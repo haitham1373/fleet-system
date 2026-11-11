@@ -14,6 +14,7 @@ from core.utils import (
     money,
     parse_date,
     save_upload,
+    to_float,
 )
 
 auth.require_login()
@@ -22,43 +23,6 @@ ui.page_header(
     "إدارة الفنادق، المحطات، عقود الإسكان، والمستندات المرفقة",
     "🏨",
 )
-
-# التأكد من إنشاء الجداول والأعمدة الأساسية لمنع أي خطأ نهائياً
-db.execute("""
-    CREATE TABLE IF NOT EXISTS Hotels (
-        HotelName TEXT UNIQUE,
-        Notes TEXT,
-        CreatedAt TEXT
-    )
-""")
-
-db.execute("""
-    CREATE TABLE IF NOT EXISTS Stations (
-        StationName TEXT UNIQUE,
-        Notes TEXT,
-        CreatedAt TEXT
-    )
-""")
-
-db.execute("""
-    CREATE TABLE IF NOT EXISTS HotelContracts (
-        HotelName TEXT,
-        StationName TEXT,
-        BusID TEXT,
-        StartDate TEXT,
-        EndDate TEXT,
-        Amount REAL,
-        ContractFile TEXT,
-        Notes TEXT,
-        CreatedAt TEXT
-    )
-""")
-
-# التأكد من وجود عمود Amount في جدول العقود القديم إن وجد
-try:
-    db.execute("ALTER TABLE HotelContracts ADD COLUMN Amount REAL")
-except Exception:
-    pass
 
 buses = db.read_df(
     "SELECT BusID, VehicleType, Model FROM Buses ORDER BY BusID"
@@ -115,12 +79,11 @@ with st.expander("🏨 إدارة الفنادق والمنشآت (إضافة / 
                     except Exception as err:
                         st.error(f"خطأ: {err}")
             
-            if auth.is_admin():
-                if st.button("حذف هذا الفندق نهائياً", key=f"del_hotel_{h_id}", type="secondary"):
-                    db.execute("DELETE FROM Hotels WHERE rowid=?", (h_id,))
-                    db.log_audit(auth.current_username(), "حذف", "الفنادق", h_id, selected_h_name)
-                    st.success("تم حذف الفندق.")
-                    st.rerun()
+            if st.button("حذف هذا الفندق نهائياً", key=f"del_hotel_{h_id}", type="secondary"):
+                db.execute("DELETE FROM Hotels WHERE rowid=?", (h_id,))
+                db.log_audit(auth.current_username(), "حذف", "الفنادق", h_id, selected_h_name)
+                st.success("تم حذف الفندق.")
+                st.rerun()
 
 # ---------------------------------------------------------------------------
 # 2. إدارة المحطات (إضافة، تعديل، حذف)
@@ -173,12 +136,11 @@ with st.expander("🚉 إدارة المحطات (إضافة / تعديل / حذ
                     except Exception as err:
                         st.error(f"خطأ: {err}")
             
-            if auth.is_admin():
-                if st.button("حذف هذه المحطة نهائياً", key=f"del_station_{st_id}", type="secondary"):
-                    db.execute("DELETE FROM Stations WHERE rowid=?", (st_id,))
-                    db.log_audit(auth.current_username(), "حذف", "المحطات", st_id, selected_st_name)
-                    st.success("تم حذف المحطة.")
-                    st.rerun()
+            if st.button("حذف هذه المحطة نهائياً", key=f"del_station_{st_id}", type="secondary"):
+                db.execute("DELETE FROM Stations WHERE rowid=?", (st_id,))
+                db.log_audit(auth.current_username(), "حذف", "المحطات", st_id, selected_st_name)
+                st.success("تم حذف المحطة.")
+                st.rerun()
 
 # ---------------------------------------------------------------------------
 # 3. عقود الفنادق والإسكان
@@ -186,7 +148,8 @@ with st.expander("🚉 إدارة المحطات (إضافة / تعديل / حذ
 # استخدام rowid صريح وموحد باسم ID لضمان عمل أزرار التعديل والحذف بشكل مضمون
 contracts = db.read_df(
     """
-    SELECT rowid AS ID, HotelName, StationName, BusID, StartDate, EndDate, Amount, ContractFile, Notes, CreatedAt
+    SELECT rowid AS ID, HotelName, StationName, BusID, StartDate, EndDate,
+           Amount, ContractFile, Notes, CreatedAt, ContractCost
       FROM HotelContracts
      ORDER BY rowid DESC
     """
@@ -203,6 +166,13 @@ if not contracts.empty:
     
     contracts["_start_year"] = contracts["_start"].dt.year.fillna(0).astype(int)
     contracts["_start_month"] = contracts["_start"].dt.month.fillna(0).astype(int)
+
+    contract_amounts = pd.to_numeric(contracts["Amount"], errors="coerce")
+    if "ContractCost" in contracts.columns:
+        contract_amounts = contract_amounts.fillna(
+            pd.to_numeric(contracts["ContractCost"], errors="coerce")
+        )
+    contracts["_amount"] = contract_amounts.fillna(0.0)
 
     def calc_contract_status(row):
         end_dt = row["_end"]
@@ -224,8 +194,8 @@ active_contracts = contracts[contracts["ContractStatus"] == "ساري"] if not c
 metric_cols[1].metric("العقود السارية", f"{len(active_contracts):,}")
 
 total_val = 0.0
-if not contracts.empty and "Amount" in contracts.columns:
-    total_val = pd.to_numeric(contracts["Amount"], errors="coerce").fillna(0.0).sum()
+if not contracts.empty and "_amount" in contracts.columns:
+    total_val = float(contracts["_amount"].sum())
 metric_cols[2].metric("إجمالي قيم العقود", money(total_val))
 st.write("")
 
@@ -289,7 +259,7 @@ with st.expander("➕ إضافة عقد فندق جديد"):
             else:
                 try:
                     stored_file = (
-                        save_upload("contracts", f"contract_{hotel_name}", contract_file)
+                        save_upload("hotel_contracts", f"contract_{hotel_name}", contract_file)
                         if contract_file is not None
                         else ""
                     )
@@ -390,14 +360,12 @@ else:
         hotel_n = str(row.get("HotelName", "—"))
         station_n = str(row.get("StationName", "—"))
         bus_val = str(row.get("BusID", "—"))
+        if bus_val.strip().lower() in {"none", "nan", "", "—"}:
+            bus_val = "بدون مركبة"
         start_d = str(row.get("StartDate", "—"))
         end_d = str(row.get("EndDate", "—"))
-        
-        raw_amt = row.get("Amount", 0.0)
-        try:
-            amount_val = float(raw_amt) if raw_amt is not None else 0.0
-        except (ValueError, TypeError):
-            amount_val = 0.0
+
+        amount_val = to_float(row.get("_amount"), to_float(row.get("Amount"), 0.0))
 
         status_val = str(row.get("ContractStatus", "ساري"))
         rem_d = int(row.get("RemainingDays", 0))
@@ -461,7 +429,7 @@ else:
                         try:
                             final_file = contract_file
                             if e_file is not None:
-                                final_file = save_upload("contracts", f"contract_{e_hotel}", e_file)
+                                final_file = save_upload("hotel_contracts", f"contract_{e_hotel}", e_file)
 
                             db.execute(
                                 """
@@ -504,14 +472,11 @@ else:
                 d_c1, d_c2 = st.columns(2)
                 with d_c1:
                     if st.button("نعم، احذف نهائياً", key=f"conf_del_contract_{contract_id}", type="primary"):
-                        if auth.is_admin():
-                            db.execute("DELETE FROM HotelContracts WHERE rowid = ?", (contract_id,))
-                            db.log_audit(auth.current_username(), "حذف", "عقود الفنادق", contract_id, f"عقد فندق {hotel_n}")
-                            st.session_state.pop(f"deleting_contract_id", None)
-                            st.success("تم حذف العقد بنجاح.")
-                            st.rerun()
-                        else:
-                            st.error("حذف العقود متاح لمدير النظام فقط.")
+                        db.execute("DELETE FROM HotelContracts WHERE rowid = ?", (contract_id,))
+                        db.log_audit(auth.current_username(), "حذف", "عقود الفنادق", contract_id, f"عقد فندق {hotel_n}")
+                        st.session_state.pop(f"deleting_contract_id", None)
+                        st.success("تم حذف العقد بنجاح.")
+                        st.rerun()
                 with d_c2:
                     if st.button("تراجع", key=f"canc_del_contract_{contract_id}"):
                         st.session_state.pop(f"deleting_contract_id", None)

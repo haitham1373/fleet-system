@@ -8,11 +8,12 @@ import pandas as pd
 import streamlit as st
 
 from core import auth, db, ui
-from core.services import bus_id_from_label, bus_labels
+from core.services import bus_id_from_label, bus_labels, sync_bus_battery
 from core.utils import (
     clean_multiline,
     parse_date,
     save_upload,
+    to_int,
 )
 
 auth.require_login()
@@ -32,12 +33,21 @@ vehicle_types = [
     )
 ]
 
+# جلب أسماء الورش والمراكز من جدول Workshops.
+workshops_list = [
+    str(value)
+    for value in db.fetch_column(
+        "SELECT WorkshopName FROM Workshops ORDER BY WorkshopName"
+    )
+    if value
+]
+
 batteries = db.read_df(
     """
-    SELECT bt.*, bt.rowid AS BatteryID, COALESCE(b.VehicleType, 'غير متوفر') AS VehicleType, b.Model
+    SELECT bt.*, bt.ID AS BatteryID, COALESCE(b.VehicleType, 'غير متوفر') AS VehicleType, b.Model
       FROM Batteries bt
       LEFT JOIN Buses b ON b.BusID = bt.BusID
-     ORDER BY COALESCE(bt.InstallDate, '') DESC, bt.rowid DESC
+     ORDER BY COALESCE(bt.InstallDate, '') DESC, bt.ID DESC
     """
 )
 
@@ -49,7 +59,7 @@ if not batteries.empty:
     
     def calc_warranty(row):
         inst = pd.to_datetime(row.get("InstallDate"), errors="coerce")
-        months = int(row.get("WarrantyMonths") or 12)
+        months = to_int(row.get("WarrantyMonths"), 12) or 12
         if pd.isna(inst):
             return "غير متوفر", 0, "غير متوفر"
         expiry = inst + pd.DateOffset(months=months)
@@ -136,10 +146,18 @@ with st.expander("➕ تسجيل بطارية جديدة"):
             )
 
         with third:
-            supplier = st.text_input(
-                "الورشة / المورد",
-                placeholder="اسم المورد أو مركز الصيانة",
-            )
+            if workshops_list:
+                selected_workshop = st.selectbox(
+                    "الورشة / المركز *",
+                    ["-- اختر الورشة --", *workshops_list],
+                    key="bat_workshop_select",
+                )
+            else:
+                selected_workshop = st.text_input(
+                    "الورشة / المركز",
+                    placeholder="اسم الورشة أو المركز",
+                )
+
             warranty_file = st.file_uploader(
                 "شهادة ضمان البطارية (PDF أو صورة)",
                 type=["pdf", "png", "jpg", "jpeg"],
@@ -155,10 +173,14 @@ with st.expander("➕ تسجيل بطارية جديدة"):
 
     if submitted:
         target_bus_id = bus_id_from_label(selected_bus_label) if selected_bus_label else None
+        workshop_val = selected_workshop if isinstance(selected_workshop, str) else ""
+        
         if not target_bus_id:
             st.error("يرجى اختيار رقم المركبة الصحيح.")
         elif not battery_type.strip():
             st.error("يرجى إدخال نوع/ماركة البطارية.")
+        elif workshops_list and workshop_val == "-- اختر الورشة --":
+            st.error("يرجى اختيار الورشة أو المركز.")
         else:
             try:
                 stored_file = (
@@ -170,7 +192,7 @@ with st.expander("➕ تسجيل بطارية جديدة"):
                     """
                     INSERT INTO Batteries (
                         BusID, InstallDate, BatteryType, WarrantyMonths,
-                        Supplier, WarrantyFile, Notes
+                        Workshop, WarrantyFile, Notes
                     ) VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
@@ -178,11 +200,12 @@ with st.expander("➕ تسجيل بطارية جديدة"):
                         str(install_date),
                         battery_type.strip(),
                         int(warranty_months),
-                        supplier.strip(),
+                        workshop_val,
                         stored_file,
                         clean_multiline(notes),
                     ),
                 )
+                sync_bus_battery(target_bus_id)
                 db.log_audit(
                     auth.current_username(),
                     "إضافة",
@@ -196,7 +219,7 @@ with st.expander("➕ تسجيل بطارية جديدة"):
                 st.error(f"تعذر حفظ البطارية: {error}")
 
 # ---------------------------------------------------------------------------
-# تصفية البطاريات (تم إضافة فلتر حالة الضمان هنا)
+# تصفية البطاريات
 # ---------------------------------------------------------------------------
 st.divider()
 ui.section_title("تصفية سجلات البطاريات", "ابحث في بطاريات الأسطول")
@@ -240,7 +263,7 @@ if not filtered.empty:
 st.caption(f"عدد النتائج: {len(filtered):,} سجل")
 
 # ---------------------------------------------------------------------------
-# استعراض وإدارة البطاريات ببطاقات تفاعلية وأزرار مباشرة
+# استعراض وإدارة البطاريات
 # ---------------------------------------------------------------------------
 if filtered.empty:
     ui.empty_state("لا توجد سجلات بطاريات مطابقة لخيارات التصفية.", "🔋")
@@ -254,8 +277,8 @@ else:
         v_type = str(row.get("VehicleType") or "—")
         install_d = str(row.get("InstallDate") or "—")
         b_type = str(row.get("BatteryType") or "—")
-        w_months = int(row.get("WarrantyMonths") or 12)
-        sup = str(row.get("Supplier") or "—")
+        w_months = to_int(row.get("WarrantyMonths"), 12) or 12
+        sup = str(row.get("Workshop") or "—")
         notes_val = str(row.get("Notes") or "لا توجد ملاحظات")
         w_status_text = str(row.get("WarrantyStatusText") or "—")
         w_file = row.get("WarrantyFile")
@@ -270,7 +293,7 @@ else:
                 st.caption(f"تاريخ التركيب: {install_d}")
             with cols[2]:
                 st.markdown(f"**حالة الضمان:** {w_status_text}")
-                st.caption(f"المدة: {w_months} شهر | المورد: {sup}")
+                st.caption(f"المدة: {w_months} شهر | الورشة: {sup}")
             with cols[3]:
                 st.markdown(f"**ملاحظات:** {notes_val}")
             with cols[4]:
@@ -301,7 +324,12 @@ else:
                     e_type = st.text_input("نوع / ماركة البطارية", value=b_type, key=f"e_type_{battery_id}")
                     e_months = st.number_input("مدة الضمان (أشهر)", min_value=1, value=w_months, step=1, key=f"e_mon_{battery_id}")
                 with f2:
-                    e_sup = st.text_input("الورشة / المورد", value=sup, key=f"e_sup_{battery_id}")
+                    if workshops_list:
+                        curr_idx = workshops_list.index(sup) + 1 if sup in workshops_list else 0
+                        e_sup = st.selectbox("الورشة / المركز", ["-- اختر الورشة --", *workshops_list], index=curr_idx, key=f"e_sup_{battery_id}")
+                    else:
+                        e_sup = st.text_input("الورشة / المركز", value=sup, key=f"e_sup_{battery_id}")
+                        
                     e_file = st.file_uploader("استبدال شهادة الضمان", type=["pdf", "png", "jpg", "jpeg"], key=f"e_file_{battery_id}")
                     e_notes = st.text_area("ملاحظات", value=notes_val, key=f"e_notes_{battery_id}")
 
@@ -313,23 +341,25 @@ else:
                             if e_file is not None:
                                 final_file = save_upload("batteries", f"bat_{bus_id}", e_file)
 
+                            final_workshop_val = e_sup if isinstance(e_sup, str) else ""
                             db.execute(
                                 """
                                 UPDATE Batteries
                                    SET InstallDate=?, BatteryType=?, WarrantyMonths=?,
-                                       Supplier=?, WarrantyFile=?, Notes=?
-                                 WHERE rowid=?
+                                       Workshop=?, WarrantyFile=?, Notes=?
+                                 WHERE ID=?
                                 """,
                                 (
                                     str(e_install),
                                     e_type.strip(),
                                     int(e_months),
-                                    e_sup.strip(),
+                                    final_workshop_val,
                                     str(final_file or ""),
                                     clean_multiline(e_notes),
                                     battery_id,
                                 ),
                             )
+                            sync_bus_battery(bus_id)
                             db.log_audit(auth.current_username(), "تعديل", "البطاريات", battery_id, f"تحديث بطارية المركبة {bus_id}")
                             st.session_state.pop(f"editing_bat_id", None)
                             st.success("تم تحديث بيانات البطارية بنجاح.")
@@ -348,14 +378,12 @@ else:
                 d_c1, d_c2 = st.columns(2)
                 with d_c1:
                     if st.button("نعم، احذف نهائياً", key=f"conf_del_bat_{battery_id}", type="primary"):
-                        if auth.is_admin():
-                            db.execute("DELETE FROM Batteries WHERE rowid=?", (battery_id,))
-                            db.log_audit(auth.current_username(), "حذف", "البطاريات", battery_id, f"بطارية مركبة {bus_id}")
-                            st.session_state.pop(f"deleting_bat_id", None)
-                            st.success("تم حذف البطارية بنجاح.")
-                            st.rerun()
-                        else:
-                            st.error("حذف البطاريات متاح لمدير النظام فقط.")
+                        db.execute("DELETE FROM Batteries WHERE ID=?", (battery_id,))
+                        sync_bus_battery(bus_id)
+                        db.log_audit(auth.current_username(), "حذف", "البطاريات", battery_id, f"بطارية مركبة {bus_id}")
+                        st.session_state.pop(f"deleting_bat_id", None)
+                        st.success("تم حذف البطارية بنجاح.")
+                        st.rerun()
                 with d_c2:
                     if st.button("تراجع", key=f"canc_del_bat_{battery_id}"):
                         st.session_state.pop(f"deleting_bat_id", None)

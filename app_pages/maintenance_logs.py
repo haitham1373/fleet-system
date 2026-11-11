@@ -353,7 +353,7 @@ else:
         v_type = str(row.get("VehicleType") or "—")
         done_date = str(row.get("DoneDate") or "—")
         job = str(row.get("JobType") or "—")
-        cost_val = float(row.get("Cost") or 0.0)
+        cost_val = to_float(row.get("Cost"), 0.0)
         workshop_name = str(row.get("Workshop") or "—")
         inv_status = str(row.get("InvoiceStatus") or "—")
         notes_val = str(row.get("Notes") or "لا توجد ملاحظات")
@@ -450,14 +450,11 @@ else:
                 d_col1, d_col2 = st.columns(2)
                 with d_col1:
                     if st.button("نعم، احذف نهائياً", key=f"confirm_del_{log_id}", type="primary"):
-                        if auth.is_admin():
-                            db.execute("DELETE FROM Logs WHERE LogID=?", (log_id,))
-                            db.log_audit(auth.current_username(), "حذف", "سجلات الصيانة", log_id, f"سجل {bus_id}")
-                            st.session_state.pop(f"deleting_log_id", None)
-                            st.success("تم الحذف بنجاح.")
-                            st.rerun()
-                        else:
-                            st.error("حذف السجلات متاح لمدير النظام فقط.")
+                        db.execute("DELETE FROM Logs WHERE LogID=?", (log_id,))
+                        db.log_audit(auth.current_username(), "حذف", "سجلات الصيانة", log_id, f"سجل {bus_id}")
+                        st.session_state.pop(f"deleting_log_id", None)
+                        st.success("تم الحذف بنجاح.")
+                        st.rerun()
                 with d_col2:
                     if st.button("تراجع", key=f"cancel_del_{log_id}"):
                         st.session_state.pop(f"deleting_log_id", None)

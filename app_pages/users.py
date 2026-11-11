@@ -1,4 +1,4 @@
-"""المستخدمون والصلاحيات: إدارة الحسابات والأدوار (مدير النظام فقط)."""
+"""المستخدمون والصلاحيات: إدارة الحسابات والأدوار لكل المستخدمين."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from core import auth, db, ui
 from core.security import hash_password, validate_password
 from core.utils import clean_text
 
-auth.require_admin()
+auth.require_login()
 ui.page_header(
     "المستخدمون والصلاحيات",
     "إدارة حسابات الدخول وأدوار المدير والمستخدم العادي",
@@ -199,32 +199,12 @@ if not users.empty:
 
             if save_changes:
                 new_role = ROLE_OPTIONS[new_role_label]
-                active_admins = int(
-                    db.scalar(
-                        "SELECT COUNT(*) FROM Users "
-                        "WHERE Role='admin' AND IsActive=1",
-                        default=0,
-                    )
-                    or 0
-                )
-                removing_admin = (
-                    current_role == auth.ROLE_ADMIN
-                    and int(selected_user.get("IsActive") or 0) == 1
-                    and (new_role != auth.ROLE_ADMIN or not is_active)
-                )
                 password_error = (
                     validate_password(new_password) if new_password else None
                 )
 
                 if selected_username == auth.current_username() and not is_active:
                     st.error("لا يمكنك إيقاف حسابك الحالي.")
-                elif (
-                    selected_username == auth.current_username()
-                    and new_role != auth.ROLE_ADMIN
-                ):
-                    st.error("لا يمكنك إزالة صلاحية المدير عن حسابك الحالي.")
-                elif removing_admin and active_admins <= 1:
-                    st.error("يجب أن يبقى مدير نظام نشط واحد على الأقل.")
                 elif new_password and new_password != confirm_new_password:
                     st.error("كلمة المرور الجديدة وتأكيدها غير متطابقين.")
                 elif password_error:
@@ -268,21 +248,6 @@ if not users.empty:
             if selected_username == auth.current_username():
                 st.info("لا يمكنك حذف حسابك الحالي.")
             else:
-                active_admins = int(
-                    db.scalar(
-                        "SELECT COUNT(*) FROM Users "
-                        "WHERE Role='admin' AND IsActive=1",
-                        default=0,
-                    )
-                    or 0
-                )
-                is_last_admin = (
-                    str(selected_user.get("Role")) == auth.ROLE_ADMIN
-                    and int(selected_user.get("IsActive") or 0) == 1
-                    and active_admins <= 1
-                )
-                if is_last_admin:
-                    st.warning("لا يمكن حذف آخر مدير نظام نشط.")
                 confirm = st.checkbox(
                     "أؤكد رغبتي في حذف هذا الحساب",
                     key="confirm_delete_user",
@@ -295,8 +260,6 @@ if not users.empty:
                 ):
                     if not confirm:
                         st.error("يرجى تأكيد الحذف أولاً.")
-                    elif is_last_admin:
-                        st.error("لا يمكن حذف آخر مدير نظام نشط.")
                     else:
                         db.execute(
                             "DELETE FROM Users WHERE Username=?",

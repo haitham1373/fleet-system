@@ -92,6 +92,16 @@ else:
     selected_row = type_options[selected_option]
     current_name = str(selected_row["JobTypeName"])
 
+    usage = int(
+        db.scalar(
+            "SELECT COUNT(*) FROM Logs WHERE JobType=?",
+            (current_name,),
+            default=0,
+        )
+        or 0
+    )
+    st.caption(f"عدد سجلات الصيانة المرتبطة: {usage:,}")
+
     with st.form("edit_maint_type_form"):
         new_name = st.text_input("تعديل اسم نوع الصيانة", value=current_name)
         update_submitted = st.form_submit_button("حفظ التعديلات", type="primary", width="stretch")
@@ -100,31 +110,41 @@ else:
         cleaned_new_name = clean_text(new_name, 100)
         if not cleaned_new_name:
             st.error("اسم نوع الصيانة لا يمكن أن يكون فارغاً.")
+        elif cleaned_new_name == current_name:
+            st.info("لم يتم تغيير الاسم.")
         else:
             try:
-                db.execute(
-                    "UPDATE MaintenanceTypes SET JobTypeName=? WHERE JobTypeName=?",
-                    (cleaned_new_name, current_name),
-                )
+                with db.get_conn() as connection:
+                    connection.execute(
+                        "UPDATE MaintenanceTypes SET JobTypeName=? WHERE JobTypeName=?",
+                        (cleaned_new_name, current_name),
+                    )
+                    connection.execute(
+                        "UPDATE Logs SET JobType=? WHERE JobType=?",
+                        (cleaned_new_name, current_name),
+                    )
+                    connection.execute(
+                        "UPDATE Buses SET MaintType=? WHERE MaintType=?",
+                        (cleaned_new_name, current_name),
+                    )
                 db.log_audit(auth.current_username(), "تعديل", "أنواع الصيانة", current_name, f"تعديل إلى: {cleaned_new_name}")
-                st.success("تم تحديث نوع الصيانة بنجاح.")
+                st.success("تم تحديث نوع الصيانة والسجلات المرتبطة به.")
                 st.rerun()
             except Exception as error:
                 st.error(f"تعذر التحديث: {error}")
 
-    if auth.is_admin():
-        st.write("")
-        confirm_del = st.checkbox("أؤكد رغبتي في حذف نوع الصيانة هذا", key="confirm_del_maint_type")
-        if st.button("حذف نوع الصيانة نهائياً", icon=":material/delete:", width="stretch"):
-            if not confirm_del:
-                st.error("يرجى تأكيد الحذف أولاً.")
-            else:
-                try:
-                    db.execute("DELETE FROM MaintenanceTypes WHERE JobTypeName=?", (current_name,))
-                    db.log_audit(auth.current_username(), "حذف", "أنواع الصيانة", current_name, current_name)
-                    st.success("تم حذف نوع الصيانة بنجاح.")
-                    st.rerun()
-                except Exception as error:
-                    st.error(f"تعذر الحذف: {error}")
-    else:
-        st.caption("حذف أنواع الصيانة متاح لمدير النظام فقط.")
+    st.write("")
+    confirm_del = st.checkbox("أؤكد رغبتي في حذف نوع الصيانة هذا", key="confirm_del_maint_type")
+    if st.button("حذف نوع الصيانة نهائياً", icon=":material/delete:", width="stretch"):
+        if not confirm_del:
+            st.error("يرجى تأكيد الحذف أولاً.")
+        elif usage:
+            st.error("لا يمكن حذف نوع صيانة مرتبط بسجلات. قم بتعديل اسمه أولاً إن لزم.")
+        else:
+            try:
+                db.execute("DELETE FROM MaintenanceTypes WHERE JobTypeName=?", (current_name,))
+                db.log_audit(auth.current_username(), "حذف", "أنواع الصيانة", current_name, current_name)
+                st.success("تم حذف نوع الصيانة بنجاح.")
+                st.rerun()
+            except Exception as error:
+                st.error(f"تعذر الحذف: {error}")

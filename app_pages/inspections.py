@@ -8,13 +8,14 @@ import pandas as pd
 import streamlit as st
 
 from core import auth, db, ui
-from core.services import bus_id_from_label, bus_labels
+from core.services import bus_id_from_label, bus_labels, sync_bus_inspection
 from core.utils import (
     clean_multiline,
     days_until,
     inspection_status,
     parse_date,
     save_upload,
+    to_int,
 )
 
 auth.require_login()
@@ -103,15 +104,12 @@ with st.expander("➕ إضافة تقرير فحص دوري جديد"):
                         if report_file is not None
                         else ""
                     )
-                    days_remaining = (expiry_date - today).days
-                    status = inspection_status(days_remaining)
-
                     db.execute(
                         """
                         INSERT INTO InspectionReports (
-                            BusID, TestDate, ExpiryDate, Result,
-                            ReportFile, Notes, DaysRemaining, Status, CreatedAt
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            BusID, InspectionDate, ExpiryDate, ResultStatus,
+                            ReportFile, Notes, CreatedAt
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             target_bus_id,
@@ -120,11 +118,10 @@ with st.expander("➕ إضافة تقرير فحص دوري جديد"):
                             result,
                             stored_file,
                             clean_multiline(notes),
-                            days_remaining,
-                            status,
                             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         ),
                     )
+                    sync_bus_inspection(target_bus_id)
                     db.log_audit(
                         auth.current_username(),
                         "إضافة",
@@ -194,11 +191,11 @@ else:
         report_id = int(row["ReportID"])
         bus_id = str(row.get("BusID") or "—")
         v_type = str(row.get("VehicleType") or "—")
-        test_d = str(row.get("TestDate") or "—")
+        test_d = str(row.get("InspectionDate") or "—")
         expiry_d = str(row.get("ExpiryDate") or "—")
-        res = str(row.get("Result") or "—")
+        res = str(row.get("ResultStatus") or "—")
         status_val = str(row.get("حالة الفحص") or "—")
-        days_rem = int(row.get("أيام متبقية") or 0)
+        days_rem = to_int(row.get("أيام متبقية"), 0)
         notes_val = str(row.get("Notes") or "لا توجد ملاحظات")
         report_file = row.get("ReportFile")
 
@@ -241,7 +238,17 @@ else:
                 with f1:
                     e_test = st.date_input("تاريخ الفحص", value=parse_date(test_d) or today, key=f"e_test_{report_id}")
                     e_expiry = st.date_input("تاريخ الانتهاء", value=parse_date(expiry_d) or today, key=f"e_expiry_{report_id}")
-                    e_res = st.selectbox("نتيجة الفحص", ["اجتاز الفحص بنجاح", "راسب", "يحتاج إعادة فحص"], index=0 if res in ["اجتاز الفحص بنجاح"] else 1, key=f"e_res_{report_id}")
+                    result_options = ["اجتاز الفحص بنجاح", "راسب", "يحتاج إعادة فحص"]
+                    e_res = st.selectbox(
+                        "نتيجة الفحص",
+                        result_options,
+                        index=(
+                            result_options.index(res)
+                            if res in result_options
+                            else 0
+                        ),
+                        key=f"e_res_{report_id}",
+                    )
                 with f2:
                     e_file = st.file_uploader("استبدال مرفق الفحص", type=["pdf", "png", "jpg", "jpeg"], key=f"e_file_{report_id}")
                     e_notes = st.text_area("ملاحظات", value=notes_val, key=f"e_notes_{report_id}")
@@ -254,14 +261,11 @@ else:
                             if e_file is not None:
                                 final_file = save_upload("inspections", f"insp_{bus_id}", e_file)
                             
-                            d_rem = (e_expiry - today).days
-                            st_val = inspection_status(d_rem)
-
                             db.execute(
                                 """
                                 UPDATE InspectionReports
-                                   SET TestDate=?, ExpiryDate=?, Result=?,
-                                       ReportFile=?, Notes=?, DaysRemaining=?, Status=?
+                                   SET InspectionDate=?, ExpiryDate=?, ResultStatus=?,
+                                       ReportFile=?, Notes=?
                                  WHERE ReportID=?
                                 """,
                                 (
@@ -270,11 +274,10 @@ else:
                                     e_res,
                                     str(final_file or ""),
                                     clean_multiline(e_notes),
-                                    d_rem,
-                                    st_val,
                                     report_id,
                                 ),
                             )
+                            sync_bus_inspection(bus_id)
                             db.log_audit(auth.current_username(), "تعديل", "الفحص الدوري", report_id, f"تحديث فحص المركبة {bus_id}")
                             st.session_state.pop(f"editing_insp_id", None)
                             st.success("تم تحديث تقرير الفحص بنجاح.")
@@ -293,14 +296,12 @@ else:
                 d_c1, d_c2 = st.columns(2)
                 with d_c1:
                     if st.button("نعم، احذف نهائياً", key=f"conf_del_insp_{report_id}", type="primary"):
-                        if auth.is_admin():
-                            db.execute("DELETE FROM InspectionReports WHERE ReportID=?", (report_id,))
-                            db.log_audit(auth.current_username(), "حذف", "الفحص الدوري", report_id, f"فحص مركبة {bus_id}")
-                            st.session_state.pop(f"deleting_insp_id", None)
-                            st.success("تم حذف التقرير بنجاح.")
-                            st.rerun()
-                        else:
-                            st.error("حذف التقارير متاح لمدير النظام فقط.")
+                        db.execute("DELETE FROM InspectionReports WHERE ReportID=?", (report_id,))
+                        sync_bus_inspection(bus_id)
+                        db.log_audit(auth.current_username(), "حذف", "الفحص الدوري", report_id, f"فحص مركبة {bus_id}")
+                        st.session_state.pop(f"deleting_insp_id", None)
+                        st.success("تم حذف التقرير بنجاح.")
+                        st.rerun()
                 with d_c2:
                     if st.button("تراجع", key=f"canc_del_insp_{report_id}"):
                         st.session_state.pop(f"deleting_insp_id", None)

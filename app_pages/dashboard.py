@@ -156,15 +156,29 @@ metric_row_two[2].metric(
 )
 parking_month_total = 0.0
 if not parking_invoices.empty:
-    parking_invoices["_date"] = pd.to_datetime(
-        parking_invoices["ParkingDate"], errors="coerce"
+    date_col = (
+        "InvoiceDate"
+        if "InvoiceDate" in parking_invoices.columns
+        else "ParkingDate"
     )
+    amount_col = "Amount" if "Amount" in parking_invoices.columns else "Cost"
+
+    dates = pd.to_datetime(parking_invoices[date_col], errors="coerce")
+    if "InvoiceDate" in parking_invoices.columns and "ParkingDate" in parking_invoices.columns:
+        dates = dates.fillna(
+            pd.to_datetime(parking_invoices["ParkingDate"], errors="coerce")
+        )
+
+    amounts = pd.to_numeric(
+        parking_invoices[amount_col], errors="coerce"
+    ).fillna(0.0)
+    if "Amount" in parking_invoices.columns and "Cost" in parking_invoices.columns:
+        amounts = amounts.fillna(
+            pd.to_numeric(parking_invoices["Cost"], errors="coerce")
+        ).fillna(0.0)
+
     parking_month_total = float(
-        parking_invoices.loc[
-            parking_invoices["_date"].dt.strftime("%Y-%m") == current_month, "Cost"
-        ]
-        .fillna(0)
-        .sum()
+        amounts.loc[dates.dt.strftime("%Y-%m") == current_month].sum()
     )
 metric_row_two[3].metric("فواتير المواقف هذا الشهر", money(parking_month_total))
 

@@ -132,42 +132,39 @@ if not workshops.empty:
                     st.error(f"تعذر تحديث الورشة: {error}")
 
         st.divider()
-        if auth.is_admin():
-            st.markdown("##### حذف الورشة")
-            if usage:
-                st.warning(
-                    "لا يمكن حذف ورشة مرتبطة بسجلات صيانة. "
-                    "قم بتعديل اسم الورشة في السجلات أولاً إن لزم."
-                )
-            confirm = st.checkbox(
-                "أؤكد رغبتي في حذف هذه الورشة",
-                key="confirm_delete_workshop",
+        st.markdown("##### حذف الورشة")
+        if usage:
+            st.warning(
+                "لا يمكن حذف ورشة مرتبطة بسجلات صيانة. "
+                "قم بتعديل اسم الورشة في السجلات أولاً إن لزم."
             )
-            if st.button(
-                "حذف الورشة نهائياً",
-                icon=":material/delete:",
-                width="stretch",
-                key="delete_workshop_button",
-            ):
-                if not confirm:
-                    st.error("يرجى تأكيد الحذف أولاً.")
-                elif usage:
-                    st.error("لا يمكن حذف ورشة مرتبطة بسجلات.")
-                else:
-                    db.execute(
-                        "DELETE FROM Workshops WHERE WorkshopName=?",
-                        (selected_workshop,),
-                    )
-                    db.log_audit(
-                        auth.current_username(),
-                        "حذف",
-                        "الورش",
-                        selected_workshop,
-                    )
-                    st.success("تم حذف الورشة بنجاح.")
-                    st.rerun()
-        else:
-            st.caption("حذف الورش متاح لمدير النظام فقط.")
+        confirm = st.checkbox(
+            "أؤكد رغبتي في حذف هذه الورشة",
+            key="confirm_delete_workshop",
+        )
+        if st.button(
+            "حذف الورشة نهائياً",
+            icon=":material/delete:",
+            width="stretch",
+            key="delete_workshop_button",
+        ):
+            if not confirm:
+                st.error("يرجى تأكيد الحذف أولاً.")
+            elif usage:
+                st.error("لا يمكن حذف ورشة مرتبطة بسجلات.")
+            else:
+                db.execute(
+                    "DELETE FROM Workshops WHERE WorkshopName=?",
+                    (selected_workshop,),
+                )
+                db.log_audit(
+                    auth.current_username(),
+                    "حذف",
+                    "الورش",
+                    selected_workshop,
+                )
+                st.success("تم حذف الورشة بنجاح.")
+                st.rerun()
 
 st.divider()
 ui.section_title("الورش المسجلة", "جميع ورش ومراكز الصيانة في النظام")

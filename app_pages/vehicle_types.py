@@ -141,42 +141,39 @@ if not types.empty:
                     st.error(f"تعذر تحديث النوع: {error}")
 
         st.divider()
-        if auth.is_admin():
-            st.markdown("##### حذف النوع")
-            if usage:
-                st.warning(
-                    "لا يمكن حذف هذا النوع لوجود مركبات مرتبطة به. "
-                    "قم بتغيير نوع تلك المركبات أولاً."
-                )
-            confirm = st.checkbox(
-                "أؤكد رغبتي في حذف هذا النوع",
-                key="confirm_delete_vehicle_type",
+        st.markdown("##### حذف النوع")
+        if usage:
+            st.warning(
+                "لا يمكن حذف هذا النوع لوجود مركبات مرتبطة به. "
+                "قم بتغيير نوع تلك المركبات أولاً."
             )
-            if st.button(
-                "حذف النوع نهائياً",
-                icon=":material/delete:",
-                width="stretch",
-                key="delete_vehicle_type_button",
-            ):
-                if not confirm:
-                    st.error("يرجى تأكيد الحذف أولاً.")
-                elif usage:
-                    st.error("لا يمكن حذف نوع مرتبط بمركبات.")
-                else:
-                    db.execute(
-                        "DELETE FROM VehicleTypes WHERE TypeName=?",
-                        (selected_type,),
-                    )
-                    db.log_audit(
-                        auth.current_username(),
-                        "حذف",
-                        "أنواع المركبات",
-                        selected_type,
-                    )
-                    st.success("تم حذف النوع بنجاح.")
-                    st.rerun()
-        else:
-            st.caption("حذف الأنواع متاح لمدير النظام فقط.")
+        confirm = st.checkbox(
+            "أؤكد رغبتي في حذف هذا النوع",
+            key="confirm_delete_vehicle_type",
+        )
+        if st.button(
+            "حذف النوع نهائياً",
+            icon=":material/delete:",
+            width="stretch",
+            key="delete_vehicle_type_button",
+        ):
+            if not confirm:
+                st.error("يرجى تأكيد الحذف أولاً.")
+            elif usage:
+                st.error("لا يمكن حذف نوع مرتبط بمركبات.")
+            else:
+                db.execute(
+                    "DELETE FROM VehicleTypes WHERE TypeName=?",
+                    (selected_type,),
+                )
+                db.log_audit(
+                    auth.current_username(),
+                    "حذف",
+                    "أنواع المركبات",
+                    selected_type,
+                )
+                st.success("تم حذف النوع بنجاح.")
+                st.rerun()
 
 st.divider()
 ui.section_title("الأنواع المسجلة", "جميع تصنيفات المركبات في النظام")

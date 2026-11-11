@@ -14,6 +14,7 @@ from core.utils import (
     money,
     parse_date,
     save_upload,
+    to_float,
 )
 
 auth.require_login()
@@ -23,35 +24,6 @@ ui.page_header(
     "🅿️",
 )
 
-# التأكد من إنشاء جدول فواتير المواقف الذكية بالكامل
-db.execute("""
-    CREATE TABLE IF NOT EXISTS SmartParkingInvoices (
-        HotelName TEXT,
-        StationName TEXT,
-        BusID TEXT,
-        InvoiceDate TEXT,
-        Amount REAL,
-        InvoiceFile TEXT,
-        Notes TEXT,
-        CreatedAt TEXT
-    )
-""")
-
-# التأكد من إضافة الأعمدة تلقائياً إذا كان الجدول القديم ناقصاً
-for col_def in [
-    ("InvoiceDate", "TEXT"),
-    ("StationName", "TEXT"),
-    ("Amount", "REAL"),
-    ("InvoiceFile", "TEXT"),
-    ("Notes", "TEXT"),
-    ("BusID", "TEXT"),
-    ("CreatedAt", "TEXT")
-]:
-    try:
-        db.execute(f"ALTER TABLE SmartParkingInvoices ADD COLUMN {col_def[0]} {col_def[1]}")
-    except Exception:
-        pass
-
 buses = db.read_df(
     "SELECT BusID, VehicleType, Model FROM Buses ORDER BY BusID"
 )
@@ -59,7 +31,8 @@ buses = db.read_df(
 # جلب فواتير المواقف الذكية مع معرف الصف الفريد rowid باسم ID
 invoices = db.read_df(
     """
-    SELECT rowid AS ID, HotelName, StationName, BusID, InvoiceDate, Amount, InvoiceFile, Notes, CreatedAt
+    SELECT rowid AS ID, HotelName, StationName, BusID, InvoiceDate, Amount,
+           InvoiceFile, Notes, CreatedAt, ParkingDate, Cost
       FROM SmartParkingInvoices
      ORDER BY rowid DESC
     """
@@ -69,14 +42,26 @@ today = date.today()
 
 if not invoices.empty:
     invoices.columns = [str(col).strip() for col in invoices.columns]
-    invoices["_date"] = pd.to_datetime(invoices["InvoiceDate"], errors="coerce") if "InvoiceDate" in invoices else pd.NaT
+    invoice_dates = pd.to_datetime(invoices["InvoiceDate"], errors="coerce")
+    if "ParkingDate" in invoices.columns:
+        invoice_dates = invoice_dates.fillna(
+            pd.to_datetime(invoices["ParkingDate"], errors="coerce")
+        )
+    invoices["_date"] = invoice_dates
     invoices["_year"] = invoices["_date"].dt.year.fillna(0).astype(int)
     invoices["_month"] = invoices["_date"].dt.month.fillna(0).astype(int)
+
+    invoice_amounts = pd.to_numeric(invoices["Amount"], errors="coerce")
+    if "Cost" in invoices.columns:
+        invoice_amounts = invoice_amounts.fillna(
+            pd.to_numeric(invoices["Cost"], errors="coerce")
+        )
+    invoices["_amount"] = invoice_amounts.fillna(0.0)
 
 # الإحصائيات العلوية
 metric_cols = st.columns(3)
 total_inv_count = len(invoices)
-total_inv_amount = float(pd.to_numeric(invoices["Amount"], errors="coerce").fillna(0.0).sum()) if not invoices.empty and "Amount" in invoices else 0.0
+total_inv_amount = float(invoices["_amount"].sum()) if not invoices.empty else 0.0
 
 metric_cols[0].metric("إجمالي الفواتير", f"{total_inv_count:,}")
 metric_cols[1].metric("إجمالي التكاليف", money(total_inv_amount))
@@ -141,7 +126,7 @@ with st.expander("➕ تسجيل فاتورة موقف جديدة"):
 
             try:
                 stored_file = (
-                    save_upload("parking", f"park_{hotel_name}", invoice_file)
+                    save_upload("parking_invoices", f"park_{hotel_name}", invoice_file)
                     if invoice_file is not None
                     else ""
                 )
@@ -236,13 +221,11 @@ else:
         hotel_n = str(row.get("HotelName", "—"))
         station_n = str(row.get("StationName", "—"))
         bus_val = str(row.get("BusID", "—"))
+        if bus_val.strip().lower() in {"none", "nan", "", "—"}:
+            bus_val = "بدون مركبة"
         inv_date = str(row.get("InvoiceDate", "—"))
-        
-        raw_amt = row.get("Amount", 0.0)
-        try:
-            amount_val = float(raw_amt) if raw_amt is not None else 0.0
-        except (ValueError, TypeError):
-            amount_val = 0.0
+
+        amount_val = to_float(row.get("_amount"), to_float(row.get("Amount"), 0.0))
 
         notes_val = str(row.get("Notes", "لا توجد ملاحظات"))
         invoice_file = row.get("InvoiceFile", None)
@@ -298,7 +281,7 @@ else:
                         try:
                             final_file = invoice_file
                             if e_file is not None:
-                                final_file = save_upload("parking", f"park_{e_hotel}", e_file)
+                                final_file = save_upload("parking_invoices", f"park_{e_hotel}", e_file)
 
                             db.execute(
                                 """
@@ -339,14 +322,11 @@ else:
                 d_c1, d_c2 = st.columns(2)
                 with d_c1:
                     if st.button("نعم، احذف نهائياً", key=f"conf_del_park_{invoice_id}", type="primary"):
-                        if auth.is_admin():
-                            db.execute("DELETE FROM SmartParkingInvoices WHERE rowid = ?", (invoice_id,))
-                            db.log_audit(auth.current_username(), "حذف", "المواقف الذكية", invoice_id, f"فاتورة فندق {hotel_n}")
-                            st.session_state.pop(f"deleting_park_id", None)
-                            st.success("تم حذف الفاتورة بنجاح.")
-                            st.rerun()
-                        else:
-                            st.error("حذف الفواتير متاح لمدير النظام فقط.")
+                        db.execute("DELETE FROM SmartParkingInvoices WHERE rowid = ?", (invoice_id,))
+                        db.log_audit(auth.current_username(), "حذف", "المواقف الذكية", invoice_id, f"فاتورة فندق {hotel_n}")
+                        st.session_state.pop(f"deleting_park_id", None)
+                        st.success("تم حذف الفاتورة بنجاح.")
+                        st.rerun()
                 with d_c2:
                     if st.button("تراجع", key=f"canc_del_park_{invoice_id}"):
                         st.session_state.pop(f"deleting_park_id", None)
