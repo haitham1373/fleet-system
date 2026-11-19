@@ -1,9 +1,9 @@
-"""توليد تقارير PDF عربية جاهزة للطباعة والتنزيل.
+"""توليد تقارير PDF عربية بأسلوب احترافي متوافق مع الهوية البصرية الجديدة.
 
 يعتمد على ReportLab مع دعم تشكيل الحروف العربية واتجاه النص من اليمين
-إلى اليسار عبر ``arabic_reshaper`` و``python-bidi``، ويستخدم خط Tahoma
-عند توفره (لأنه الأقرب لتصميم التقارير الرسمية) مع الرجوع إلى خط Amiri
-المرفق مع المشروع.
+إلى اليسار عبر ``arabic_reshaper`` و``python-bidi``. تم توحيد ألوان
+التقارير مع تجديد الواجهة: تدرّج أزرق، لمسة ذهبية، بطاقات واضحة
+وجداول متباعدة تصلح للطباعة المكتبية.
 """
 
 from __future__ import annotations
@@ -39,18 +39,40 @@ MARGIN_X = 14 * mm
 MARGIN_Y = 12 * mm
 CONTENT_WIDTH = PAGE_WIDTH - (2 * MARGIN_X)
 
-PRIMARY = colors.HexColor("#0369a1")
-PRIMARY_LIGHT = colors.HexColor("#0284c7")
+# ---------------------------------------------------------------------------
+# هوية التصميم (مطابقة لواجهة التطبيق بعد التجديد)
+# ---------------------------------------------------------------------------
+BRAND_800 = colors.HexColor("#0369a1")
+BRAND_700 = colors.HexColor("#0369a1")
+BRAND_600 = colors.HexColor("#0284c7")
+PRIMARY = BRAND_700
+PRIMARY_LIGHT = BRAND_600
+PRIMARY_SOFT = colors.HexColor("#e0f2fe")
+ACCENT = colors.HexColor("#f59e0b")
+ACCENT_SOFT = colors.HexColor("#fef3c7")
 DARK = colors.HexColor("#0f172a")
 TEXT = colors.HexColor("#334155")
-MUTED = colors.HexColor("#475569")
-BORDER = colors.HexColor("#cbd5e1")
-INFO_BG = colors.HexColor("#e2e8f0")
+MUTED = colors.HexColor("#64748b")
+BORDER = colors.HexColor("#e2e8f0")
+INFO_BG = colors.HexColor("#f8fafc")
+SUCCESS = colors.HexColor("#166534")
+SUCCESS_BG = colors.HexColor("#dcfce7")
+WARNING = colors.HexColor("#92400e")
+DANGER = colors.HexColor("#991b1b")
+DANGER_BG = colors.HexColor("#fee2e2")
+
+# ألوان نموذج «كشف التفويج» المعتمد (أخضر رسمي + ذهبي)
+REF_GREEN = colors.HexColor("#0f4c3a")
+REF_GOLD = colors.HexColor("#9a6b1d")
+REF_GRID = colors.HexColor("#cbd5e1")
+REF_ROW_GREEN = colors.HexColor("#f1f5f4")
+REF_ROW_BLUE = colors.HexColor("#f8fafc")
 
 COMPANY_NAME_AR = "شركة بروج العالم للنقل"
 COMPANY_NAME_AR_LINE2 = "البري"
 COMPANY_NAME_EN = "Burooj Al-Alam Land Transport"
 COMPANY_NAME_EN_LINE2 = "Company"
+COMPANY_TAGLINE = "نظام إدارة الأسطول والصيانة"
 FOOTER_AR = (
     "( سنترال ) مكة المكرمة – بطحاء قريش – الشارع العام – تلفون : "
     "\u202a+966 2 5771177\u202c – فاكس : \u202a+966 2 5729455\u202c – ص.ب : 5941"
@@ -82,11 +104,16 @@ def register_fonts() -> tuple[str, str]:
 
     windows_fonts = Path("C:/Windows/Fonts")
     regular = _first_existing(
-        [windows_fonts / "tahoma.ttf", BASE_DIR / "Amiri-Regular.ttf"]
+        [
+            windows_fonts / "tahoma.ttf",
+            BASE_DIR / "Cairo-Regular.ttf",
+            BASE_DIR / "Amiri-Regular.ttf",
+        ]
     )
     bold = _first_existing(
         [
             windows_fonts / "tahomabd.ttf",
+            BASE_DIR / "Cairo-Bold.ttf",
             BASE_DIR / "Amiri-Bold.ttf",
             BASE_DIR / "Amiri-Regular.ttf",
         ]
@@ -116,14 +143,21 @@ def rtl(text: object) -> str:
         return value
 
 
+def _display_value(value: object) -> str:
+    """يعيد قيمة مقروءة للحقول الفارغة بدل ترك خلايا بيضاء."""
+    text = "" if value is None else str(value).strip()
+    return text if text else "—"
+
+
 def _field_markup(label: str, value: object, bold_font: str) -> str:
-    """ينشئ نص الحقل بعنوان عريض وقيمة عادية مع الحفاظ على ترتيب الأرقام."""
+    """ينشئ نص الحقل بعنوان عريض ملوّن وقيمة واضحة مع ترتيب الأرقام."""
     label_visual = rtl(label)
-    value_visual = rtl(value)
-    bold_label = f'<font name="{bold_font}">{xml_escape(label_visual)}</font>'
-    if value_visual:
-        return f"{xml_escape(value_visual)} {bold_label}"
-    return bold_label
+    value_visual = rtl(_display_value(value))
+    bold_label = (
+        f'<font name="{bold_font}" color="#0369a1">'
+        f"{xml_escape(label_visual)}</font>"
+    )
+    return f"{xml_escape(value_visual)} {bold_label}"
 
 
 # ---------------------------------------------------------------------------
@@ -152,17 +186,58 @@ def _styles() -> dict[str, ParagraphStyle]:
             "brand_ar",
             fontName=bold_font,
             fontSize=14,
-            leading=19,
-            alignment=TA_CENTER,
-            textColor=PRIMARY,
+            leading=18,
+            alignment=TA_RIGHT,
+            textColor=colors.white,
+        ),
+        "brand_ar_small": ParagraphStyle(
+            "brand_ar_small",
+            fontName=body_font,
+            fontSize=8.5,
+            leading=12,
+            alignment=TA_RIGHT,
+            textColor=ACCENT_SOFT,
         ),
         "brand_en": ParagraphStyle(
             "brand_en",
             fontName=bold_font,
-            fontSize=9.5,
-            leading=14,
-            alignment=TA_CENTER,
-            textColor=PRIMARY,
+            fontSize=9,
+            leading=13,
+            alignment=TA_LEFT,
+            textColor=colors.white,
+        ),
+        "brand_en_small": ParagraphStyle(
+            "brand_en_small",
+            fontName=body_font,
+            fontSize=7.8,
+            leading=11,
+            alignment=TA_LEFT,
+            textColor=ACCENT_SOFT,
+        ),
+        "doc_title": ParagraphStyle(
+            "doc_title",
+            fontName=bold_font,
+            fontSize=15,
+            leading=20,
+            alignment=TA_RIGHT,
+            textColor=BRAND_800,
+            keepWithNext=True,
+        ),
+        "doc_subtitle": ParagraphStyle(
+            "doc_subtitle",
+            fontName=body_font,
+            fontSize=9,
+            leading=13,
+            alignment=TA_RIGHT,
+            textColor=MUTED,
+        ),
+        "doc_ref": ParagraphStyle(
+            "doc_ref",
+            fontName=body_font,
+            fontSize=8.5,
+            leading=12,
+            alignment=TA_LEFT,
+            textColor=MUTED,
         ),
         "field": ParagraphStyle(
             "field",
@@ -188,14 +263,47 @@ def _styles() -> dict[str, ParagraphStyle]:
             alignment=TA_CENTER,
             textColor=DARK,
         ),
+        "table_index": ParagraphStyle(
+            "table_index",
+            fontName=bold_font,
+            fontSize=9,
+            leading=12,
+            alignment=TA_CENTER,
+            textColor=BRAND_800,
+        ),
         "section_title": ParagraphStyle(
             "section_title",
             fontName=bold_font,
             fontSize=11,
             leading=15,
             alignment=TA_RIGHT,
-            textColor=PRIMARY,
+            textColor=BRAND_800,
             keepWithNext=True,
+        ),
+        "section_bar": ParagraphStyle(
+            "section_bar",
+            fontName=bold_font,
+            fontSize=10,
+            leading=14,
+            alignment=TA_RIGHT,
+            textColor=colors.white,
+            keepWithNext=True,
+        ),
+        "kpi_label": ParagraphStyle(
+            "kpi_label",
+            fontName=body_font,
+            fontSize=8.5,
+            leading=12,
+            alignment=TA_CENTER,
+            textColor=MUTED,
+        ),
+        "kpi_value": ParagraphStyle(
+            "kpi_value",
+            fontName=bold_font,
+            fontSize=13,
+            leading=17,
+            alignment=TA_CENTER,
+            textColor=BRAND_800,
         ),
         "total": ParagraphStyle(
             "total",
@@ -203,15 +311,23 @@ def _styles() -> dict[str, ParagraphStyle]:
             fontSize=9.5,
             leading=13,
             alignment=TA_CENTER,
-            textColor=DARK,
+            textColor=BRAND_800,
         ),
         "grand_total": ParagraphStyle(
             "grand_total",
             fontName=bold_font,
-            fontSize=11,
-            leading=15,
+            fontSize=13,
+            leading=18,
             alignment=TA_CENTER,
-            textColor=DARK,
+            textColor=colors.white,
+        ),
+        "signature": ParagraphStyle(
+            "signature",
+            fontName=body_font,
+            fontSize=8.5,
+            leading=12,
+            alignment=TA_CENTER,
+            textColor=MUTED,
         ),
         "footer_ar": ParagraphStyle(
             "footer_ar",
@@ -229,12 +345,202 @@ def _styles() -> dict[str, ParagraphStyle]:
             alignment=TA_CENTER,
             textColor=MUTED,
         ),
+        "footer_page": ParagraphStyle(
+            "footer_page",
+            fontName=bold_font,
+            fontSize=8,
+            leading=11,
+            alignment=TA_LEFT,
+            textColor=BRAND_700,
+        ),
         "empty": ParagraphStyle(
             "empty",
             fontName=body_font,
             fontSize=10,
             leading=16,
             alignment=TA_CENTER,
+            textColor=MUTED,
+        ),
+        "status_ok": ParagraphStyle(
+            "status_ok",
+            fontName=bold_font,
+            fontSize=8.5,
+            leading=11,
+            alignment=TA_CENTER,
+            textColor=SUCCESS,
+            backColor=SUCCESS_BG,
+            borderColor=SUCCESS,
+            borderWidth=0.4,
+            borderPadding=3,
+        ),
+        "status_warn": ParagraphStyle(
+            "status_warn",
+            fontName=bold_font,
+            fontSize=8.5,
+            leading=11,
+            alignment=TA_CENTER,
+            textColor=WARNING,
+            backColor=ACCENT_SOFT,
+            borderColor=ACCENT,
+            borderWidth=0.4,
+            borderPadding=3,
+        ),
+        "status_bad": ParagraphStyle(
+            "status_bad",
+            fontName=bold_font,
+            fontSize=8.5,
+            leading=11,
+            alignment=TA_CENTER,
+            textColor=DANGER,
+            backColor=DANGER_BG,
+            borderColor=DANGER,
+            borderWidth=0.4,
+            borderPadding=3,
+        ),
+        # أنماط بيان الركاب بنموذج كشف التفويج المعتمد
+        "mf_company_ar": ParagraphStyle(
+            "mf_company_ar",
+            fontName=bold_font,
+            fontSize=15,
+            leading=20,
+            alignment=TA_RIGHT,
+            textColor=REF_GREEN,
+        ),
+        "mf_company_ar_sub": ParagraphStyle(
+            "mf_company_ar_sub",
+            fontName=bold_font,
+            fontSize=10.5,
+            leading=14,
+            alignment=TA_RIGHT,
+            textColor=REF_GOLD,
+        ),
+        "mf_company_en": ParagraphStyle(
+            "mf_company_en",
+            fontName=bold_font,
+            fontSize=10.5,
+            leading=14,
+            alignment=TA_LEFT,
+            textColor=REF_GREEN,
+        ),
+        "mf_company_en_sub": ParagraphStyle(
+            "mf_company_en_sub",
+            fontName=body_font,
+            fontSize=9.5,
+            leading=13,
+            alignment=TA_LEFT,
+            textColor=MUTED,
+        ),
+        "mf_title": ParagraphStyle(
+            "mf_title",
+            fontName=bold_font,
+            fontSize=15,
+            leading=20,
+            alignment=TA_RIGHT,
+            textColor=REF_GREEN,
+        ),
+        "mf_ref": ParagraphStyle(
+            "mf_ref",
+            fontName=bold_font,
+            fontSize=10.5,
+            leading=14,
+            alignment=TA_LEFT,
+            textColor=REF_GOLD,
+        ),
+        "mf_section": ParagraphStyle(
+            "mf_section",
+            fontName=bold_font,
+            fontSize=12.5,
+            leading=17,
+            alignment=TA_RIGHT,
+            textColor=REF_GREEN,
+            keepWithNext=True,
+        ),
+        "mf_label": ParagraphStyle(
+            "mf_label",
+            fontName=bold_font,
+            fontSize=10,
+            leading=13,
+            alignment=TA_RIGHT,
+            textColor=REF_GREEN,
+        ),
+        "mf_value": ParagraphStyle(
+            "mf_value",
+            fontName=body_font,
+            fontSize=10,
+            leading=13,
+            alignment=TA_RIGHT,
+            textColor=DARK,
+        ),
+        "mf_table_head": ParagraphStyle(
+            "mf_table_head",
+            fontName=bold_font,
+            fontSize=10,
+            leading=13,
+            alignment=TA_CENTER,
+            textColor=colors.white,
+        ),
+        "mf_table_cell": ParagraphStyle(
+            "mf_table_cell",
+            fontName=body_font,
+            fontSize=10,
+            leading=13,
+            alignment=TA_CENTER,
+            textColor=DARK,
+        ),
+        "mf_index": ParagraphStyle(
+            "mf_index",
+            fontName=bold_font,
+            fontSize=10,
+            leading=13,
+            alignment=TA_CENTER,
+            textColor=REF_GREEN,
+        ),
+        "mf_sig_label": ParagraphStyle(
+            "mf_sig_label",
+            fontName=bold_font,
+            fontSize=10,
+            leading=14,
+            alignment=TA_CENTER,
+            textColor=REF_GREEN,
+        ),
+        "mf_sig_name": ParagraphStyle(
+            "mf_sig_name",
+            fontName=body_font,
+            fontSize=9.5,
+            leading=13,
+            alignment=TA_CENTER,
+            textColor=MUTED,
+        ),
+        "mf_footer_ar": ParagraphStyle(
+            "mf_footer_ar",
+            fontName=body_font,
+            fontSize=9.5,
+            leading=13,
+            alignment=TA_CENTER,
+            textColor=TEXT,
+        ),
+        "mf_footer_en": ParagraphStyle(
+            "mf_footer_en",
+            fontName=body_font,
+            fontSize=9,
+            leading=12,
+            alignment=TA_CENTER,
+            textColor=MUTED,
+        ),
+        "mf_footer_bottom": ParagraphStyle(
+            "mf_footer_bottom",
+            fontName=bold_font,
+            fontSize=8.5,
+            leading=12,
+            alignment=TA_RIGHT,
+            textColor=REF_GREEN,
+        ),
+        "mf_footer_page": ParagraphStyle(
+            "mf_footer_page",
+            fontName=body_font,
+            fontSize=8.5,
+            leading=12,
+            alignment=TA_LEFT,
             textColor=MUTED,
         ),
     }
@@ -250,11 +556,19 @@ def _logo_path() -> Path | None:
     return None
 
 
-def _header(styles: dict[str, ParagraphStyle]) -> list:
+def _header(
+    styles: dict[str, ParagraphStyle],
+    *,
+    title: str,
+    subtitle: str,
+    reference: str,
+) -> list:
+    """يبني رأس التقرير: شريط هوية + بطاقة عنوان بلمسة ذهبية."""
     arabic = Paragraph(
         f"{rtl(COMPANY_NAME_AR)}<br/>{rtl(COMPANY_NAME_AR_LINE2)}",
         styles["brand_ar"],
     )
+    arabic_tag = Paragraph(rtl(COMPANY_TAGLINE), styles["brand_ar_small"])
     english = Paragraph(
         f"{COMPANY_NAME_EN}<br/>{COMPANY_NAME_EN_LINE2}",
         styles["brand_en"],
@@ -264,35 +578,64 @@ def _header(styles: dict[str, ParagraphStyle]) -> list:
     path = _logo_path()
     if path is not None:
         image = Image(str(path))
-        image.drawWidth = 71
-        image.drawHeight = 71
+        image.drawWidth = 56
+        image.drawHeight = 56
         logo = image
 
-    header = Table(
-        [[english, logo, arabic]],
-        colWidths=[CONTENT_WIDTH * 0.36, CONTENT_WIDTH * 0.28, CONTENT_WIDTH * 0.36],
+    identity = Table(
+        [[english, logo, [arabic, arabic_tag]]],
+        colWidths=[CONTENT_WIDTH * 0.36, CONTENT_WIDTH * 0.22, CONTENT_WIDTH * 0.42],
     )
-    header.setStyle(
+    identity.setStyle(
         TableStyle(
             [
+                ("BACKGROUND", (0, 0), (-1, -1), PRIMARY),
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                # توسيط الشعار داخل خليته الوسطى ليطابق التصميم المرجعي
                 ("ALIGN", (1, 0), (1, 0), "CENTER"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                ("TOPPADDING", (0, 0), (-1, -1), 0),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                ("LEFTPADDING", (0, 0), (-1, -1), 12),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
             ]
         )
     )
-    rule = HRFlowable(
+
+    title_text = Paragraph(rtl(title), styles["doc_title"])
+    subtitle_text = Paragraph(rtl(subtitle), styles["doc_subtitle"])
+    ref_text = Paragraph(rtl(reference), styles["doc_ref"])
+    date_text = Paragraph(rtl(f"تاريخ الإصدار: {date.today():%d-%m-%Y}"), styles["doc_ref"])
+
+    title_card = Table(
+        [
+            [ref_text, title_text],
+            [date_text, subtitle_text],
+        ],
+        colWidths=[CONTENT_WIDTH * 0.32, CONTENT_WIDTH * 0.68],
+    )
+    title_card.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), colors.white),
+                ("BOX", (0, 0), (-1, -1), 0.6, BORDER),
+                ("LINEAFTER", (1, 0), (1, -1), 3, ACCENT),
+                ("LINEBELOW", (0, 0), (-1, 0), 0.4, BORDER),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 12),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ]
+        )
+    )
+
+    accent_line = HRFlowable(
         width="100%",
         thickness=2,
-        color=PRIMARY,
-        spaceBefore=7,
-        spaceAfter=9,
+        color=ACCENT,
+        spaceBefore=0,
+        spaceAfter=10,
     )
-    return [header, rule]
+    return [identity, title_card, accent_line]
 
 
 FOOTER_RESERVED = 46  # المساحة المحجوزة أسفل كل صفحة للتذييل (بالنقاط)
@@ -308,58 +651,53 @@ def _footer_flowables(styles: dict[str, ParagraphStyle]) -> list[Paragraph]:
 
 
 def _frame_canvas(canvas, doc) -> None:
-    """يرسم إطاراً أنيقاً مزدوجاً (بزوايا دائرية) حول صفحة التقرير."""
+    """يضيف إطاراً كاملاً وشريط هوية أعلى الصفحة."""
     width, height = doc.pagesize
     canvas.saveState()
-
-    # الإطار الخارجي: خط سميك بلون الهوية
-    outer = 7 * mm
+    inset = 10 * mm
     canvas.setStrokeColor(PRIMARY)
-    canvas.setLineWidth(1.4)
-    canvas.roundRect(
-        outer,
-        outer,
-        width - 2 * outer,
-        height - 2 * outer,
-        7 * mm,
+    canvas.setLineWidth(0.8)
+    canvas.rect(
+        inset,
+        inset,
+        width - (2 * inset),
+        height - (2 * inset),
         stroke=1,
         fill=0,
     )
-
-    # الإطار الداخلي: خط رفيع أفتح لإعطاء عمق وجمال
-    inner = 9.5 * mm
-    canvas.setStrokeColor(PRIMARY_LIGHT)
-    canvas.setLineWidth(0.6)
-    canvas.roundRect(
-        inner,
-        inner,
-        width - 2 * inner,
-        height - 2 * inner,
-        5 * mm,
-        stroke=1,
-        fill=0,
-    )
-
+    canvas.setFillColor(PRIMARY)
+    canvas.rect(0, height - 10, width, 10, stroke=0, fill=1)
+    canvas.setFillColor(ACCENT)
+    canvas.rect(0, height - 13, width, 3, stroke=0, fill=1)
     canvas.restoreState()
 
 
 def _footer_callback(styles: dict[str, ParagraphStyle]):
-    """ينشئ دالة ترسم تذييل الشركة مثبتاً أسفل كل صفحة."""
+    """ينشئ دالة ترسم تذييل الشركة ورقم الصفحة أسفل كل صفحة."""
     paragraphs = _footer_flowables(styles)
 
     def draw_footer(canvas, doc) -> None:
         canvas.saveState()
         width, _ = doc.pagesize
-        line_y = MARGIN_Y + FOOTER_RESERVED - 8
+        line_y = MARGIN_Y + FOOTER_RESERVED
         canvas.setStrokeColor(BORDER)
         canvas.setLineWidth(0.6)
         canvas.line(MARGIN_X, line_y, width - MARGIN_X, line_y)
+        canvas.setStrokeColor(ACCENT)
+        canvas.setLineWidth(2)
+        canvas.line(width - MARGIN_X - 70, line_y, width - MARGIN_X, line_y)
 
-        y = line_y - 4
+        y = line_y - 5
         for paragraph in paragraphs:
             _, height = paragraph.wrapOn(canvas, CONTENT_WIDTH, 1000)
             y -= height
             paragraph.drawOn(canvas, MARGIN_X, y)
+
+        page = Paragraph(
+            rtl(f"صفحة {canvas.getPageNumber()}"), styles["footer_page"]
+        )
+        page_width, page_height = page.wrapOn(canvas, 120, 1000)
+        page.drawOn(canvas, width - MARGIN_X - page_width, y)
         canvas.restoreState()
 
     return draw_footer
@@ -370,6 +708,7 @@ def _info_table(
     styles: dict[str, ParagraphStyle],
     bold_font: str,
 ) -> Table:
+    """بطاقة بيانات الهوية: خلفية هادئة وفواصل رقيقة وخطوط عنوان داكنة."""
     rows: list[list[Paragraph]] = []
     for start in range(0, len(fields), 3):
         chunk = fields[start : start + 3]
@@ -383,19 +722,160 @@ def _info_table(
         )
 
     table = Table(rows, colWidths=[CONTENT_WIDTH / 3] * 3)
+    style = [
+        ("BACKGROUND", (0, 0), (-1, -1), INFO_BG),
+        ("BOX", (0, 0), (-1, -1), 0.7, BORDER),
+        ("LINEAFTER", (0, 0), (-2, -1), 0.5, BORDER),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 9),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 9),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+    ]
+    if len(rows) > 1:
+        style.append(("LINEBELOW", (0, 0), (-1, -2), 0.5, BORDER))
+    table.setStyle(TableStyle(style))
+    return table
+
+
+def _data_table(
+    data: list[list[Paragraph]],
+    widths: list[float],
+    *,
+    header_background: colors.Color = PRIMARY,
+    row_padding: float = 7,
+) -> Table:
+    """جدول بيانات موحّد: رأس داكن، خط ذهبي، صفوف متبادلة وحدود ناعمة."""
+    table = Table(data, colWidths=widths, repeatRows=1)
     table.setStyle(
         TableStyle(
             [
-                ("BACKGROUND", (0, 0), (-1, -1), INFO_BG),
+                ("BACKGROUND", (0, 0), (-1, 0), header_background),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("LINEBELOW", (0, 0), (-1, 0), 2.5, ACCENT),
+                ("GRID", (0, 0), (-1, -1), 0.5, BORDER),
+                ("BOX", (0, 0), (-1, -1), 0.8, PRIMARY),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, INFO_BG]),
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 8),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-                ("TOPPADDING", (0, 0), (-1, -1), 5),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("TOPPADDING", (0, 0), (-1, -1), row_padding),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), row_padding),
+                ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 5),
             ]
         )
     )
     return table
+
+
+def _section_header(
+    text: str, styles: dict[str, ParagraphStyle]
+) -> Table:
+    """عنوان مجموعة/مركبة على هيئة شريط أزرق فاتح بلمسة ذهبية."""
+    header = Table(
+        [[Paragraph(rtl(text), styles["section_title"])]],
+        colWidths=[CONTENT_WIDTH],
+    )
+    header.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), PRIMARY_SOFT),
+                ("LINEAFTER", (0, 0), (-1, -1), 3, ACCENT),
+                ("LINEBELOW", (0, 0), (-1, -1), 0.5, BORDER),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ]
+        )
+    )
+    return header
+
+
+def _content_section(
+    text: str, styles: dict[str, ParagraphStyle]
+) -> Table:
+    """شريط عنوان داكن يفصل أقسام التقرير ويمنحه ترتيباً بصرياً أوضح."""
+    bar = Table(
+        [[Paragraph(rtl(text), styles["section_bar"])]],
+        colWidths=[CONTENT_WIDTH],
+    )
+    bar.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), BRAND_800),
+                ("LINEAFTER", (0, 0), (-1, -1), 3, ACCENT),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ]
+        )
+    )
+    return bar
+
+
+def _summary_cards(
+    items: list[tuple[str, str]], styles: dict[str, ParagraphStyle]
+) -> Table:
+    """بطاقات مؤشرات سريعة في أعلى التقرير الشامل."""
+    cards: list[Table] = []
+    # الترتيب في العرض من اليمين لليسار: أول بطاقة في أقصى اليمين.
+    for label, value in reversed(items):
+        card = Table(
+            [
+                [Paragraph(rtl(label), styles["kpi_label"])],
+                [Paragraph(rtl(value), styles["kpi_value"])],
+            ],
+            colWidths=[CONTENT_WIDTH / 3 - 10],
+        )
+        card.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), colors.white),
+                    ("BOX", (0, 0), (-1, -1), 0.7, BORDER),
+                    ("LINEABOVE", (0, 0), (-1, 0), 3, ACCENT),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                    ("TOPPADDING", (0, 0), (-1, -1), 7),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+                ]
+            )
+        )
+        cards.append(card)
+
+    row = Table([cards], colWidths=[CONTENT_WIDTH / 3] * 3)
+    row.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ]
+        )
+    )
+    return row
+
+
+def _status_paragraph(
+    status: object, styles: dict[str, ParagraphStyle]
+) -> Paragraph:
+    """يعرض حالة السداد كشريحة ملوّنة داخل الخلية."""
+    value = str(status or "—").strip() or "—"
+    if value in {"غير مدفوع", "متأخر", "لم يجتز", "منتهي", "خارج الضمان"}:
+        style = styles["status_bad"]
+    elif value in {"مدفوع", "ساري", "اجتاز بنجاح", "داخل الضمان"}:
+        style = styles["status_ok"]
+    elif value in {"قيد المعالجة", "جزئي", "قريب الانتهاء", "يحتاج إصلاحات"}:
+        style = styles["status_warn"]
+    else:
+        style = styles["table_cell"]
+    return Paragraph(rtl(value), style)
 
 
 def _build_document(
@@ -417,7 +897,7 @@ def _build_document(
     footer = _footer_callback(styles)
 
     def decorate_page(canvas, doc) -> None:
-        """يرسم إطار الصفحة ثم التذييل في كل صفحة."""
+        """يرسم شريط الهوية ثم التذييل في كل صفحة."""
         _frame_canvas(canvas, doc)
         footer(canvas, doc)
 
@@ -426,8 +906,169 @@ def _build_document(
 
 
 # ---------------------------------------------------------------------------
-# بيان الركاب
+# بيان الركاب (بنموذج كشف التفويج المعتمد)
 # ---------------------------------------------------------------------------
+MANIFEST_MARGIN_X = 18 * mm
+MANIFEST_CONTENT_WIDTH = PAGE_WIDTH - (2 * MANIFEST_MARGIN_X)
+MANIFEST_FOOTER_RESERVED = 60
+
+
+def _manifest_header(
+    styles: dict[str, ParagraphStyle], operation_number: str
+) -> list:
+    """رأس النموذج: اسم الشركة يميناً وترجمتها يساراً، ثم عنوان الكشف."""
+    arabic = [
+        Paragraph(
+            rtl(COMPANY_NAME_AR + " " + COMPANY_NAME_AR_LINE2),
+            styles["mf_company_ar"],
+        ),
+        Paragraph(rtl("لنقل الحجاج والمعتمرين"), styles["mf_company_ar_sub"]),
+    ]
+    english = [
+        Paragraph(COMPANY_NAME_EN + " " + COMPANY_NAME_EN_LINE2, styles["mf_company_en"]),
+        Paragraph("Pilgrims & Umrah Transport Services", styles["mf_company_en_sub"]),
+    ]
+    logo: object = ""
+    path = _logo_path()
+    if path is not None:
+        image = Image(str(path))
+        image.drawWidth = 50
+        image.drawHeight = 50
+        logo = image
+
+    identity = Table(
+        [[english, logo, arabic]],
+        colWidths=[
+            MANIFEST_CONTENT_WIDTH * 0.40,
+            MANIFEST_CONTENT_WIDTH * 0.16,
+            MANIFEST_CONTENT_WIDTH * 0.44,
+        ],
+    )
+    identity.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("ALIGN", (1, 0), (1, 0), "CENTER"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ]
+        )
+    )
+
+    title = Table(
+        [
+            [
+                Paragraph(
+                    rtl(f"تشغيلة رقم: {_display_value(operation_number)}"),
+                    styles["mf_ref"],
+                ),
+                Paragraph(rtl("كشف تفويج ونقل ركاب"), styles["mf_title"]),
+            ]
+        ],
+        colWidths=[
+            MANIFEST_CONTENT_WIDTH * 0.32,
+            MANIFEST_CONTENT_WIDTH * 0.68,
+        ],
+    )
+    title.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LINEBELOW", (0, 0), (-1, -1), 0.8, REF_GREEN),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 8),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+            ]
+        )
+    )
+    return [identity, Spacer(1, 10), title, Spacer(1, 6)]
+
+
+def _manifest_info_table(
+    fields: list[tuple[str, object]],
+    styles: dict[str, ParagraphStyle],
+    padding: float = 5,
+) -> Table:
+    """شبكة بيانات الرحلة: حقلان في كل صف، والعناوين بخلفية خضراء فاتحة."""
+    rows: list[list[Paragraph]] = []
+    for start in range(0, len(fields), 2):
+        chunk = fields[start : start + 2]
+        chunk += [("", "")] * (2 - len(chunk))
+        cells: list[Paragraph] = []
+        # من اليسار إلى اليمين: قيمة الحقل الثاني، عنوانه، قيمة الأول، عنوانه
+        for label, value in reversed(chunk):
+            cells.append(
+                Paragraph(rtl(_display_value(value)), styles["mf_value"])
+            )
+            cells.append(Paragraph(rtl(label), styles["mf_label"]))
+        rows.append(cells)
+
+    widths = [MANIFEST_CONTENT_WIDTH * 0.28, MANIFEST_CONTENT_WIDTH * 0.22] * 2
+    table = Table(rows, colWidths=widths)
+    style = [
+        ("GRID", (0, 0), (-1, -1), 0.5, REF_GRID),
+        ("BOX", (0, 0), (-1, -1), 0.8, REF_GREEN),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), padding),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), padding),
+    ]
+    for column in (1, 3):
+        style.append(("BACKGROUND", (column, 0), (column, -1), REF_ROW_GREEN))
+    table.setStyle(TableStyle(style))
+    return table
+
+
+def _manifest_footer_callback(styles: dict[str, ParagraphStyle], total: int):
+    """تذييل التقرير: بيانات العنوان والهاتف والفاكس مع رقم الصفحة."""
+    paragraphs = _footer_flowables(styles)
+
+    def draw_footer(canvas, doc) -> None:
+        canvas.saveState()
+        width, height = doc.pagesize
+        inset = 10 * mm
+        canvas.setStrokeColor(REF_GREEN)
+        canvas.setLineWidth(0.8)
+        canvas.rect(
+            inset,
+            inset,
+            width - (2 * inset),
+            height - (2 * inset),
+            stroke=1,
+            fill=0,
+        )
+        line_y = MARGIN_Y + MANIFEST_FOOTER_RESERVED - 8
+
+        canvas.setStrokeColor(REF_GRID)
+        canvas.setLineWidth(0.6)
+        canvas.line(MANIFEST_MARGIN_X, line_y, width - MANIFEST_MARGIN_X, line_y)
+        canvas.setStrokeColor(REF_GOLD)
+        canvas.setLineWidth(2)
+        canvas.line(
+            width - MANIFEST_MARGIN_X - 70, line_y, width - MANIFEST_MARGIN_X, line_y
+        )
+
+        y = line_y - 5
+        for paragraph in paragraphs:
+            _, height = paragraph.wrapOn(canvas, MANIFEST_CONTENT_WIDTH, 1000)
+            y -= height
+            paragraph.drawOn(canvas, MANIFEST_MARGIN_X, y)
+
+        page = Paragraph(
+            rtl(f"صفحة {canvas.getPageNumber()} من {total}"),
+            styles["footer_page"],
+        )
+        page_width, page_height = page.wrapOn(canvas, 120, 1000)
+        page.drawOn(canvas, width - MANIFEST_MARGIN_X - page_width, y - page_height + 2)
+        canvas.restoreState()
+
+    return draw_footer
+
+
 def build_manifest_pdf(
     *,
     campaign_name: str,
@@ -440,9 +1081,8 @@ def build_manifest_pdf(
     operation_number: str,
     passengers: list[dict[str, str]],
 ) -> bytes:
-    """يبني بيان الركاب بصيغة PDF مطابق لتصميم الشركة الرسمي."""
+    """يبني بيان الركاب بنموذج «كشف التفويج» المعتمد."""
     styles = _styles()
-    body_font, bold_font = register_fonts()
 
     trip_date_text = (
         trip_date.strftime("%d-%m-%Y")
@@ -450,66 +1090,139 @@ def build_manifest_pdf(
         else str(trip_date)
     )
 
-    fields = [
-        ("اسم الحملة:", campaign_name),
-        ("اسم السائق:", driver_name),
-        ("رقم الجوال:", mobile_number),
-        ("الخطة:", route_plan),
-        ("رقم اللوحة:", bus_plate),
-        ("المشرف:", supervisor),
-        ("تاريخ الذهاب:", trip_date_text),
-        ("تشغيلة رقم:", operation_number),
-        ("عدد الركاب:", str(len(passengers))),
-    ]
+    def make_flowables() -> list:
+        count = len(passengers)
+        compact = count > 4
+        tight = count > 6
+        flowables: list = _manifest_header(styles, operation_number)
 
-    flowables: list = _header(styles)
-    flowables.append(_info_table(fields, styles, bold_font))
-    flowables.append(Spacer(1, 12))
+        flowables.append(
+            Paragraph(rtl("بيانات الرحلة"), styles["mf_section"])
+        )
+        flowables.append(Spacer(1, 3 if tight else 5 if compact else 8))
+        nationality = next(
+            (
+                str(passenger.get("nationality") or "").strip()
+                for passenger in passengers
+                if passenger.get("nationality")
+            ),
+            "—",
+        )
+        fields = [
+            ("اسم الحملة:", campaign_name),
+            ("تاريخ الذهاب:", trip_date_text),
+            ("مسار الرحلة (الخط):", route_plan),
+            ("تشغيلة رقم:", operation_number),
+            ("اسم السائق:", driver_name),
+            ("رقم المركبة:", bus_plate),
+            ("رقم الجوال:", mobile_number),
+            ("المشرف:", supervisor),
+            ("إجمالي عدد الركاب:", str(len(passengers))),
+            ("الجنسية:", nationality),
+        ]
+        info_pad = 3 if tight else 4 if compact else 8
+        flowables.append(_manifest_info_table(fields, styles, info_pad))
+        flowables.append(Spacer(1, 10 if tight else 14 if compact else 24))
 
-    # الأعمدة بترتيب العرض من اليسار إلى اليمين: الجنسية، الهوية، الاسم، م
-    header_cells = [
-        Paragraph(rtl("الجنسية"), styles["table_head"]),
-        Paragraph(rtl("رقم الهوية / الإقامة"), styles["table_head"]),
-        Paragraph(rtl("اسم الراكب"), styles["table_head"]),
-        Paragraph(rtl("م"), styles["table_head"]),
-    ]
-    data: list[list[Paragraph]] = [header_cells]
-    for index, passenger in enumerate(passengers, start=1):
-        data.append(
-            [
-                Paragraph(rtl(passenger.get("nationality", "")), styles["table_cell"]),
-                Paragraph(rtl(passenger.get("id", "")), styles["table_cell"]),
-                Paragraph(rtl(passenger.get("name", "")), styles["table_cell"]),
-                Paragraph(str(index), styles["table_cell"]),
-            ]
+        flowables.append(
+            Paragraph(rtl("بيانات أسماء الركاب"), styles["mf_section"])
+        )
+        flowables.append(Spacer(1, 4 if tight else 5 if compact else 10))
+
+        # من اليسار إلى اليمين: الجنسية، الهوية، الاسم، م
+        header_cells = [
+            Paragraph(rtl("الجنسية"), styles["mf_table_head"]),
+            Paragraph(rtl("رقم الهوية / الإقامة"), styles["mf_table_head"]),
+            Paragraph(rtl("اسم الراكب"), styles["mf_table_head"]),
+            Paragraph(rtl("م"), styles["mf_table_head"]),
+        ]
+        data: list[list[Paragraph]] = [header_cells]
+        for index, passenger in enumerate(passengers, start=1):
+            data.append(
+                [
+                    Paragraph(
+                        rtl(_display_value(passenger.get("nationality"))),
+                        styles["mf_table_cell"],
+                    ),
+                    Paragraph(
+                        rtl(_display_value(passenger.get("id"))),
+                        styles["mf_table_cell"],
+                    ),
+                    Paragraph(
+                        rtl(_display_value(passenger.get("name"))),
+                        styles["mf_table_cell"],
+                    ),
+                    Paragraph(str(index), styles["mf_index"]),
+                ]
+            )
+
+        widths = [
+            MANIFEST_CONTENT_WIDTH * 0.22,
+            MANIFEST_CONTENT_WIDTH * 0.24,
+            MANIFEST_CONTENT_WIDTH * 0.46,
+            MANIFEST_CONTENT_WIDTH * 0.08,
+        ]
+        if count <= 3:
+            row_pad = 34
+        elif count <= 5:
+            row_pad = 26
+        elif count == 6:
+            row_pad = 22
+        elif count == 7:
+            row_pad = 20
+        elif count == 8:
+            row_pad = 17
+        elif count <= 10:
+            row_pad = 14
+        else:
+            row_pad = 9
+
+        table = Table(data, colWidths=widths, repeatRows=1)
+        table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), REF_GREEN),
+                    ("GRID", (0, 0), (-1, -1), 0.5, REF_GRID),
+                    ("BOX", (0, 0), (-1, -1), 0.8, REF_GREEN),
+                    (
+                        "ROWBACKGROUNDS",
+                        (0, 1),
+                        (-1, -1),
+                        [REF_ROW_GREEN, REF_ROW_BLUE],
+                    ),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                    ("TOPPADDING", (0, 0), (-1, -1), row_pad),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), row_pad),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                ]
+            )
+        )
+        flowables.append(table)
+        return flowables
+
+    def new_document(target: io.BytesIO) -> SimpleDocTemplate:
+        return SimpleDocTemplate(
+            target,
+            pagesize=A4,
+            leftMargin=MANIFEST_MARGIN_X,
+            rightMargin=MANIFEST_MARGIN_X,
+            topMargin=MARGIN_Y,
+            bottomMargin=MARGIN_Y + MANIFEST_FOOTER_RESERVED,
+            title="كشف تفويج ونقل ركاب",
+            author=COMPANY_NAME_AR,
         )
 
-    widths = [
-        CONTENT_WIDTH * 0.15,
-        CONTENT_WIDTH * 0.30,
-        CONTENT_WIDTH * 0.45,
-        CONTENT_WIDTH * 0.10,
-    ]
-    table = Table(data, colWidths=widths, repeatRows=1)
-    table.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, 0), PRIMARY),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                ("GRID", (0, 0), (-1, -1), 0.6, BORDER),
-                ("BOX", (0, 0), (-1, -1), 0.8, PRIMARY),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                ("TOPPADDING", (0, 0), (-1, -1), 6),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-                ("LEFTPADDING", (0, 0), (-1, -1), 5),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-            ]
-        )
-    )
-    flowables.append(table)
+    # بناء أوّل لحساب عدد الصفحات، ثم بناء نهائي بالتذييل الصحيح.
+    counter_document = new_document(io.BytesIO())
+    counter_document.build(make_flowables())
 
-    return _build_document(flowables, "بيان الركاب", styles)
+    buffer = io.BytesIO()
+    document = new_document(buffer)
+    footer = _manifest_footer_callback(styles, counter_document.page)
+    document.build(make_flowables(), onFirstPage=footer, onLaterPages=footer)
+    return buffer.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -523,42 +1236,83 @@ def build_comprehensive_report_pdf(
     groups: list[dict],
     total_cost: float,
 ) -> bytes:
-    """يبني التقرير الشامل لصيانة الأسطول بصيغة PDF."""
+    """يبني التقرير الشامل لصيانة الأسطول بالهوية البصرية الجديدة."""
     styles = _styles()
-    body_font, bold_font = register_fonts()
+    _, bold_font = register_fonts()
 
-    flowables: list = _header(styles)
+    flowables: list = _header(
+        styles,
+        title="التقرير الشامل لصيانة الأسطول",
+        subtitle="ملخص المصروفات وأعمال الصيانة للمركبات والبنود المختارة",
+        reference=f"المرجع: RPT-{date.today():%Y%m%d}",
+    )
     meta_fields = [
         ("فترة التقرير:", f"من {ltr(start_date)} إلى {ltr(end_date)}"),
         ("التصفية:", type_filter),
+        ("تاريخ الإصدار:", f"{date.today():%d-%m-%Y}"),
+        ("العملة:", "ريال سعودي"),
     ]
+    flowables.append(_content_section("معايير التقرير", styles))
     flowables.append(_info_table(meta_fields, styles, bold_font))
     flowables.append(Spacer(1, 12))
 
+    records_count = sum(len(group.get("rows", [])) for group in groups)
+    flowables.append(
+        _summary_cards(
+            [
+                ("عدد المركبات / البنود", str(len(groups))),
+                ("عدد سجلات الصيانة", str(records_count)),
+                ("إجمالي التكلفة", f"{total_cost:,.1f} ريال"),
+            ],
+            styles,
+        )
+    )
+    flowables.append(Spacer(1, 16))
+
     if not groups:
-        flowables.append(
-            Paragraph(
-                rtl("لا توجد سجلات صيانة مطابقة لفترة التقرير وخيارات التصفية المحددة."),
-                styles["empty"],
+        empty_card = Table(
+            [
+                [
+                    Paragraph(
+                        rtl(
+                            "لا توجد سجلات صيانة مطابقة لفترة التقرير "
+                            "وخيارات التصفية المحددة."
+                        ),
+                        styles["empty"],
+                    )
+                ]
+            ],
+            colWidths=[CONTENT_WIDTH],
+        )
+        empty_card.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), INFO_BG),
+                    ("BOX", (0, 0), (-1, -1), 0.8, BORDER),
+                    ("LINEABOVE", (0, 0), (-1, 0), 3, ACCENT),
+                    ("TOPPADDING", (0, 0), (-1, -1), 14),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 14),
+                ]
             )
         )
+        flowables.append(empty_card)
     else:
         # ترتيب الأعمدة من اليسار إلى اليمين ليطابق العرض العربي.
         headers = ["الرقم", "التاريخ", "نوع العمل", "التكلفة", "الورشة", "الحالة"]
         widths = [
-            CONTENT_WIDTH * 0.14,
-            CONTENT_WIDTH * 0.16,
+            CONTENT_WIDTH * 0.12,
+            CONTENT_WIDTH * 0.15,
             CONTENT_WIDTH * 0.24,
             CONTENT_WIDTH * 0.14,
-            CONTENT_WIDTH * 0.18,
-            CONTENT_WIDTH * 0.14,
+            CONTENT_WIDTH * 0.19,
+            CONTENT_WIDTH * 0.16,
         ]
-        for group in groups:
+        for index, group in enumerate(groups, start=1):
             bus_id = str(group.get("bus_id") or "—")
             vehicle_type = str(group.get("vehicle_type") or "مصروفات عامة")
-            title = Paragraph(
-                rtl(f"{vehicle_type} - رقم المركبة / البند : {bus_id}"),
-                styles["section_title"],
+            title = _section_header(
+                f"{index}. {vehicle_type} - رقم المركبة / البند : {bus_id}",
+                styles,
             )
 
             data: list[list[Paragraph]] = [
@@ -567,33 +1321,29 @@ def build_comprehensive_report_pdf(
             for row in group.get("rows", []):
                 data.append(
                     [
-                        Paragraph(rtl(row.get("bus_id", "")), styles["table_cell"]),
-                        Paragraph(rtl(row.get("date", "")), styles["table_cell"]),
-                        Paragraph(rtl(row.get("job", "")), styles["table_cell"]),
+                        Paragraph(
+                            rtl(_display_value(row.get("bus_id"))),
+                            styles["table_cell"],
+                        ),
+                        Paragraph(
+                            rtl(_display_value(row.get("date"))), styles["table_cell"]
+                        ),
+                        Paragraph(
+                            rtl(_display_value(row.get("job"))), styles["table_cell"]
+                        ),
                         Paragraph(
                             rtl(f"{float(row.get('cost') or 0):,.1f} ريال"),
                             styles["table_cell"],
                         ),
-                        Paragraph(rtl(row.get("shop", "")), styles["table_cell"]),
-                        Paragraph(rtl(row.get("status", "")), styles["table_cell"]),
+                        Paragraph(
+                            rtl(_display_value(row.get("shop"))), styles["table_cell"]
+                        ),
+                        _status_paragraph(row.get("status"), styles),
                     ]
                 )
 
-            table = Table(data, colWidths=widths, repeatRows=1)
-            table.setStyle(
-                TableStyle(
-                    [
-                        ("BACKGROUND", (0, 0), (-1, 0), PRIMARY_LIGHT),
-                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                        ("GRID", (0, 0), (-1, -1), 0.5, BORDER),
-                        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                        ("TOPPADDING", (0, 0), (-1, -1), 4),
-                        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-                        ("LEFTPADDING", (0, 0), (-1, -1), 4),
-                        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-                    ]
-                )
+            table = _data_table(
+                data, widths, header_background=BRAND_600, row_padding=8
             )
             total = float(group.get("total") or 0.0)
             total_box = Table(
@@ -613,8 +1363,9 @@ def build_comprehensive_report_pdf(
             total_box.setStyle(
                 TableStyle(
                     [
-                        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f1f5f9")),
-                        ("BOX", (0, 0), (-1, -1), 0.8, PRIMARY_LIGHT),
+                        ("BACKGROUND", (0, 0), (-1, -1), ACCENT_SOFT),
+                        ("BOX", (0, 0), (-1, -1), 0.7, ACCENT),
+                        ("LINEAFTER", (0, 0), (-1, -1), 3, ACCENT),
                         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
                         ("TOPPADDING", (0, 0), (-1, -1), 6),
@@ -626,8 +1377,9 @@ def build_comprehensive_report_pdf(
             )
             flowables.append(title)
             flowables.append(table)
+            flowables.append(Spacer(1, 4))
             flowables.append(total_box)
-            flowables.append(Spacer(1, 8))
+            flowables.append(Spacer(1, 12))
 
         grand_total = Table(
             [
@@ -646,16 +1398,50 @@ def build_comprehensive_report_pdf(
         grand_total.setStyle(
             TableStyle(
                 [
-                    ("BACKGROUND", (0, 0), (-1, -1), INFO_BG),
-                    ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#94a3b8")),
-                    ("TOPPADDING", (0, 0), (-1, -1), 7),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+                    ("BACKGROUND", (0, 0), (-1, -1), BRAND_800),
+                    ("BOX", (0, 0), (-1, -1), 0.8, BRAND_800),
+                    ("LINEABOVE", (0, 0), (-1, 0), 3, ACCENT),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("TOPPADDING", (0, 0), (-1, -1), 9),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
                     ("LEFTPADDING", (0, 0), (-1, -1), 10),
                     ("RIGHTPADDING", (0, 0), (-1, -1), 10),
                 ]
             )
         )
-        flowables.append(Spacer(1, 6))
+        flowables.append(Spacer(1, 4))
         flowables.append(grand_total)
+        flowables.append(Spacer(1, 18))
+
+        flowables.append(_content_section("اعتماد التقرير", styles))
+        approval = Table(
+            [
+                [
+                    Paragraph(rtl("أعدّ التقرير"), styles["signature"]),
+                    Paragraph(rtl("اعتماد مدير الأسطول"), styles["signature"]),
+                ],
+                ["", ""],
+            ],
+            colWidths=[CONTENT_WIDTH / 2] * 2,
+            rowHeights=[20, 40],
+        )
+        approval.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), INFO_BG),
+                    ("BOX", (0, 0), (-1, -1), 0.7, BORDER),
+                    ("LINEAFTER", (0, 0), (0, -1), 0.5, BORDER),
+                    ("LINEBELOW", (0, 0), (-1, 0), 0.5, BORDER),
+                    ("LINEBELOW", (0, 1), (-1, 1), 0.9, MUTED),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+                    ("TOPPADDING", (0, 0), (-1, -1), 0),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                ]
+            )
+        )
+        flowables.append(approval)
 
     return _build_document(flowables, "التقرير الشامل لصيانة الأسطول", styles)
