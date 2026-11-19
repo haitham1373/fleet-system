@@ -170,6 +170,11 @@ with st.expander("➕ إضافة سجل صيانة أو مصروف جديد"):
 
         with second:
             job_type = st.selectbox("نوع العمل *", job_types)
+            apply_vat = st.checkbox(
+                "الفاتورة عليها ضريبة 15%",
+                value=True,
+                help="الغِ العلامة للفواتير اللي بدون ضريبة.",
+            )
             cost_excl = st.number_input(
                 "التكلفة بدون ضريبة (ريال) *",
                 min_value=0.0,
@@ -177,14 +182,14 @@ with st.expander("➕ إضافة سجل صيانة أو مصروف جديد"):
                 step=50.0,
                 format="%.2f",
             )
+            cost_incl = with_vat(cost_excl) if apply_vat else cost_excl
             st.number_input(
-                "التكلفة شاملة الضريبة (15%)",
+                "شامل الضريبة (15%)" if apply_vat else "شامل الضريبة (بدون)",
                 min_value=0.0,
-                value=with_vat(cost_excl),
+                value=cost_incl,
                 format="%.2f",
                 disabled=True,
             )
-            cost_incl = with_vat(cost_excl)
 
         with third:
             workshop = st.selectbox("الورشة / المركز *", workshops)
@@ -225,8 +230,9 @@ with st.expander("➕ إضافة سجل صيانة أو مصروف جديد"):
                     """
                     INSERT INTO Logs (
                         BusID, DoneDate, JobType, Cost, CostExclVAT, CostInclVAT,
-                        Workshop, InvoiceStatus, InvoiceFile, Notes, CreatedAt
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VATApplied, Workshop, InvoiceStatus, InvoiceFile, Notes,
+                        CreatedAt
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         target_bus_id,
@@ -235,6 +241,7 @@ with st.expander("➕ إضافة سجل صيانة أو مصروف جديد"):
                         float(cost_incl),
                         float(cost_excl),
                         float(cost_incl),
+                        int(apply_vat),
                         workshop,
                         invoice_status,
                         stored_file,
@@ -247,7 +254,9 @@ with st.expander("➕ إضافة سجل صيانة أو مصروف جديد"):
                     "إضافة",
                     "سجلات الصيانة",
                     target_bus_id,
-                    f"{job_type} • بدون ضريبة {cost_excl:,.2f} / "
+                    f"{job_type} • "
+                    f"{'بضريبة 15%' if apply_vat else 'بدون ضريبة'} • "
+                    f"بدون ضريبة {cost_excl:,.2f} / "
                     f"شامل الضريبة {cost_incl:,.2f} ريال",
                 )
                 st.success("تم حفظ السجل بنجاح.")
@@ -375,6 +384,12 @@ else:
         cost_val = to_float(row.get("Cost"), 0.0)
         cost_incl_val = to_float(row.get("CostInclVAT"), 0.0) or cost_val
         cost_excl_val = to_float(row.get("CostExclVAT"), 0.0) or cost_incl_val
+        vat_raw = row.get("VATApplied")
+        vat_applied_val = (
+            cost_incl_val > cost_excl_val
+            if vat_raw is None or pd.isna(vat_raw)
+            else bool(to_float(vat_raw, 0.0))
+        )
         workshop_name = str(row.get("Workshop") or "—")
         inv_status = str(row.get("InvoiceStatus") or "—")
         notes_val = str(row.get("Notes") or "لا توجد ملاحظات")
@@ -394,7 +409,8 @@ else:
             with cols[3]:
                 st.markdown(f"**بدون ضريبة:** {money(cost_excl_val)}")
                 st.markdown(f"**شامل الضريبة:** {money(cost_incl_val)}")
-                st.caption(f"ملاحظات: {notes_val}")
+                vat_caption = "ضريبة 15% مطبقة" if vat_applied_val else "بدون ضريبة"
+                st.caption(f"{vat_caption} • ملاحظات: {notes_val}")
             with cols[4]:
                 btn_cols = st.columns(3)
                 with btn_cols[0]:
@@ -422,9 +438,21 @@ else:
                     q_date = st.date_input("التاريخ", value=parse_date(done_date) or today, key=f"q_date_{log_id}")
                     q_job = st.selectbox("نوع العمل", job_types, index=job_types.index(job) if job in job_types else 0, key=f"q_job_{log_id}")
                 with f2:
+                    q_apply_vat = st.checkbox(
+                        "الفاتورة عليها ضريبة 15%",
+                        value=vat_applied_val,
+                        key=f"q_vat_{log_id}",
+                    )
                     q_cost_excl = st.number_input("بدون ضريبة (ريال)", min_value=0.0, value=cost_excl_val, step=50.0, format="%.2f", key=f"q_cost_excl_{log_id}")
-                    st.number_input("شامل الضريبة (15%)", min_value=0.0, value=with_vat(q_cost_excl), format="%.2f", disabled=True)
-                    q_cost_incl = with_vat(q_cost_excl)
+                    q_cost_incl = with_vat(q_cost_excl) if q_apply_vat else q_cost_excl
+                    st.number_input(
+                        "شامل الضريبة (15%)" if q_apply_vat else "شامل الضريبة (بدون)",
+                        min_value=0.0,
+                        value=q_cost_incl,
+                        format="%.2f",
+                        disabled=True,
+                        key=f"q_vat_total_{log_id}",
+                    )
                     q_workshop = st.selectbox("الورشة", workshops, index=workshops.index(workshop_name) if workshop_name in workshops else 0, key=f"q_workshop_{log_id}")
                 with f3:
                     q_status = st.selectbox("حالة الفاتورة", ["مدفوع", "غير مدفوع"], index=0 if inv_status == "مدفوع" else 1, key=f"q_status_{log_id}")
@@ -442,8 +470,8 @@ else:
                                 """
                                 UPDATE Logs
                                    SET DoneDate=?, JobType=?, Cost=?, CostExclVAT=?,
-                                       CostInclVAT=?, Workshop=?, InvoiceStatus=?,
-                                       InvoiceFile=?, Notes=?
+                                       CostInclVAT=?, VATApplied=?, Workshop=?,
+                                       InvoiceStatus=?, InvoiceFile=?, Notes=?
                                  WHERE LogID=?
                                 """,
                                 (
@@ -452,6 +480,7 @@ else:
                                     float(q_cost_incl),
                                     float(q_cost_excl),
                                     float(q_cost_incl),
+                                    int(q_apply_vat),
                                     q_workshop,
                                     q_status,
                                     str(new_file_path or ""),
@@ -464,7 +493,9 @@ else:
                                 "تعديل",
                                 "سجلات الصيانة",
                                 log_id,
-                                f"{q_job} • بدون ضريبة {q_cost_excl:,.2f} / "
+                                f"{q_job} • "
+                                f"{'بضريبة 15%' if q_apply_vat else 'بدون ضريبة'} • "
+                                f"بدون ضريبة {q_cost_excl:,.2f} / "
                                 f"شامل الضريبة {q_cost_incl:,.2f}",
                             )
                             st.session_state.pop(f"editing_log_id", None)

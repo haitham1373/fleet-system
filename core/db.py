@@ -200,6 +200,7 @@ _TABLES: tuple[str, ...] = (
         Cost REAL,
         CostExclVAT REAL,
         CostInclVAT REAL,
+        VATApplied INTEGER,
         Workshop TEXT,
         InvoiceStatus TEXT,
         InvoiceFile TEXT,
@@ -355,6 +356,7 @@ _COLUMN_MIGRATIONS: dict[str, dict[str, str]] = {
         "Cost": "REAL",
         "CostExclVAT": "REAL",
         "CostInclVAT": "REAL",
+        "VATApplied": "INTEGER",
         "Workshop": "TEXT",
         "InvoiceStatus": "TEXT",
         "InvoiceFile": "TEXT",
@@ -444,6 +446,16 @@ def _apply_column_migrations(connection: sqlite3.Connection) -> None:
 def _migrate_data(connection: sqlite3.Connection) -> None:
     """إصلاحات بيانات آمنة وقابلة للتكرار."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # السجلات القديمة: نستنتج حالة الضريبة من الفرق بين الرقمين.
+    connection.execute(
+        """
+        UPDATE Logs SET VATApplied = CASE
+            WHEN COALESCE(CostInclVAT, 0) > COALESCE(CostExclVAT, 0) THEN 1
+            ELSE 0 END
+        WHERE VATApplied IS NULL
+        """
+    )
 
     # إزالة تكرار أسماء الورش قبل إنشاء فهرس فريد.
     connection.execute(
