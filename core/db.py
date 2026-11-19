@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
@@ -10,7 +11,7 @@ from typing import Any, Iterable, Sequence
 
 import pandas as pd
 
-from .config import BACKUP_DIR, DB_PATH, ensure_directories, setting
+from .config import BACKUP_DIR, DB_PATH, ensure_directories
 from .security import hash_password
 from .utils import (
     clean_text,
@@ -634,7 +635,7 @@ def _seed_data(connection: sqlite3.Connection) -> None:
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     if connection.execute("SELECT COUNT(*) FROM Users").fetchone()[0] == 0:
-        initial_password = setting("FLEET_ADMIN_PASSWORD", "1234")
+        initial_password = os.environ.get("FLEET_ADMIN_PASSWORD", "1234")
         connection.execute(
             """
             INSERT INTO Users (Username, Password, FullName, Role, IsActive, CreatedAt)
