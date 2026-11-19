@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from . import cloud_sync
 from .config import (
     ALLOWED_UPLOAD_EXTENSIONS,
     BASE_DIR,
@@ -264,7 +265,9 @@ def save_upload(folder_key: str, prefix: str, uploaded) -> str:
         raise ValueError("مسار الملف غير صالح.")
 
     destination.write_bytes(uploaded.getbuffer())
-    return destination.relative_to(BASE_DIR).as_posix()
+    relative_path = destination.relative_to(BASE_DIR).as_posix()
+    cloud_sync.push_upload(relative_path)
+    return relative_path
 
 
 def resolve_stored_file(stored_path: object) -> Path | None:

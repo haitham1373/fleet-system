@@ -9,7 +9,7 @@ from datetime import datetime
 
 import streamlit as st
 
-from core import auth, db, ui
+from core import auth, cloud_sync, db, ui
 from core.config import APP_TITLE, APP_VERSION, COMPANY_NAME, COMPANY_SUBTITLE
 
 st.set_page_config(
@@ -18,6 +18,12 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+if cloud_sync.enabled() and cloud_sync.get_error():
+    st.warning(
+        "تعذرت مزامنة البيانات مع GitHub — راجع الأسرار وصلاحيات التوكن: "
+        f"{cloud_sync.get_error()}"
+    )
 
 try:
     db.init_db()

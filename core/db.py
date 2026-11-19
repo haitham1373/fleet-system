@@ -11,6 +11,7 @@ from typing import Any, Iterable, Sequence
 
 import pandas as pd
 
+from . import cloud_sync
 from .config import BACKUP_DIR, DB_PATH, ensure_directories
 from .security import hash_password
 from .utils import (
@@ -27,15 +28,21 @@ from .utils import (
 @contextmanager
 def get_conn():
     """اتصال آمن بقاعدة البيانات مع معاملة تلقائية وإغلاق مضمون."""
+    cloud_sync.retry_pending()
     ensure_directories()
     connection = sqlite3.connect(str(DB_PATH), timeout=30.0)
     connection.row_factory = sqlite3.Row
+    changes_before = connection.total_changes
     try:
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA busy_timeout = 30000")
         connection.execute("PRAGMA journal_mode = WAL")
         yield connection
         connection.commit()
+        if connection.total_changes > changes_before:
+            # لازم نفرّغ WAL في الملف قبل رفعه، وإلا النسخة البعيدة هتكون ناقصة.
+            connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            cloud_sync.push_db()
     except Exception:
         connection.rollback()
         raise

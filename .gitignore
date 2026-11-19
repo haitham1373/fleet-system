@@ -1,0 +1,25 @@
+# ملفات مؤقتة ونواتج بايثون
+__pycache__/
+*.py[cod]
+*.log
+
+# أسرار Streamlit (كلمات المرور) — لا ترفعها أبداً
+.streamlit/secrets.toml
+
+# ملفات WAL المؤقتة لقاعدة SQLite (لا ترفعها منفصلة عن fleet.db)
+fleet.db-wal
+fleet.db-shm
+
+# النسخة المحلية لحالة الاستضافة (تُدار عبر GitHub API، لا ترفع في git)
+.fleet_state/
+
+# نسخ قديمة وأرشيفات لا يحتاجها التشغيل
+Backup/
+Brog.rar
+*.rar
+*.zip
+
+# ملفات نظام التشغيل
+.DS_Store
+Thumbs.db
+desktop.ini
