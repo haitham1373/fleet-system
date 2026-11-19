@@ -17,6 +17,14 @@ from core.utils import (
     to_float,
 )
 
+VAT_RATE = 0.15
+
+
+def with_vat(amount: float) -> float:
+    """يحسب التكلفة شاملة ضريبة القيمة المضافة بنسبة 15%."""
+    return round(float(amount) * (1 + VAT_RATE), 2)
+
+
 auth.require_login()
 ui.page_header(
     "سجلات الصيانة والفواتير",
@@ -162,13 +170,21 @@ with st.expander("➕ إضافة سجل صيانة أو مصروف جديد"):
 
         with second:
             job_type = st.selectbox("نوع العمل *", job_types)
-            cost = st.number_input(
-                "التكلفة (ريال) *",
+            cost_excl = st.number_input(
+                "التكلفة بدون ضريبة (ريال) *",
                 min_value=0.0,
                 value=0.0,
                 step=50.0,
                 format="%.2f",
             )
+            st.number_input(
+                "التكلفة شاملة الضريبة (15%)",
+                min_value=0.0,
+                value=with_vat(cost_excl),
+                format="%.2f",
+                disabled=True,
+            )
+            cost_incl = with_vat(cost_excl)
 
         with third:
             workshop = st.selectbox("الورشة / المركز *", workshops)
@@ -208,15 +224,17 @@ with st.expander("➕ إضافة سجل صيانة أو مصروف جديد"):
                 db.execute(
                     """
                     INSERT INTO Logs (
-                        BusID, DoneDate, JobType, Cost, Workshop,
-                        InvoiceStatus, InvoiceFile, Notes, CreatedAt
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        BusID, DoneDate, JobType, Cost, CostExclVAT, CostInclVAT,
+                        Workshop, InvoiceStatus, InvoiceFile, Notes, CreatedAt
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         target_bus_id,
                         str(log_date),
                         job_type,
-                        float(cost),
+                        float(cost_incl),
+                        float(cost_excl),
+                        float(cost_incl),
                         workshop,
                         invoice_status,
                         stored_file,
@@ -229,7 +247,8 @@ with st.expander("➕ إضافة سجل صيانة أو مصروف جديد"):
                     "إضافة",
                     "سجلات الصيانة",
                     target_bus_id,
-                    f"{job_type} • {cost:,.2f} ريال",
+                    f"{job_type} • بدون ضريبة {cost_excl:,.2f} / "
+                    f"شامل الضريبة {cost_incl:,.2f} ريال",
                 )
                 st.success("تم حفظ السجل بنجاح.")
                 st.rerun()
@@ -354,6 +373,8 @@ else:
         done_date = str(row.get("DoneDate") or "—")
         job = str(row.get("JobType") or "—")
         cost_val = to_float(row.get("Cost"), 0.0)
+        cost_incl_val = to_float(row.get("CostInclVAT"), 0.0) or cost_val
+        cost_excl_val = to_float(row.get("CostExclVAT"), 0.0) or cost_incl_val
         workshop_name = str(row.get("Workshop") or "—")
         inv_status = str(row.get("InvoiceStatus") or "—")
         notes_val = str(row.get("Notes") or "لا توجد ملاحظات")
@@ -371,7 +392,8 @@ else:
                 st.markdown(f"**العمل:** {job}")
                 st.caption(f"الورشة: {workshop_name}")
             with cols[3]:
-                st.markdown(f"**التكلفة:** {money(cost_val)}")
+                st.markdown(f"**بدون ضريبة:** {money(cost_excl_val)}")
+                st.markdown(f"**شامل الضريبة:** {money(cost_incl_val)}")
                 st.caption(f"ملاحظات: {notes_val}")
             with cols[4]:
                 btn_cols = st.columns(3)
@@ -400,7 +422,9 @@ else:
                     q_date = st.date_input("التاريخ", value=parse_date(done_date) or today, key=f"q_date_{log_id}")
                     q_job = st.selectbox("نوع العمل", job_types, index=job_types.index(job) if job in job_types else 0, key=f"q_job_{log_id}")
                 with f2:
-                    q_cost = st.number_input("التكلفة (ريال)", min_value=0.0, value=cost_val, step=50.0, format="%.2f", key=f"q_cost_{log_id}")
+                    q_cost_excl = st.number_input("بدون ضريبة (ريال)", min_value=0.0, value=cost_excl_val, step=50.0, format="%.2f", key=f"q_cost_excl_{log_id}")
+                    st.number_input("شامل الضريبة (15%)", min_value=0.0, value=with_vat(q_cost_excl), format="%.2f", disabled=True)
+                    q_cost_incl = with_vat(q_cost_excl)
                     q_workshop = st.selectbox("الورشة", workshops, index=workshops.index(workshop_name) if workshop_name in workshops else 0, key=f"q_workshop_{log_id}")
                 with f3:
                     q_status = st.selectbox("حالة الفاتورة", ["مدفوع", "غير مدفوع"], index=0 if inv_status == "مدفوع" else 1, key=f"q_status_{log_id}")
@@ -417,14 +441,17 @@ else:
                             db.execute(
                                 """
                                 UPDATE Logs
-                                   SET DoneDate=?, JobType=?, Cost=?, Workshop=?,
-                                       InvoiceStatus=?, InvoiceFile=?, Notes=?
+                                   SET DoneDate=?, JobType=?, Cost=?, CostExclVAT=?,
+                                       CostInclVAT=?, Workshop=?, InvoiceStatus=?,
+                                       InvoiceFile=?, Notes=?
                                  WHERE LogID=?
                                 """,
                                 (
                                     str(q_date),
                                     q_job,
-                                    float(q_cost),
+                                    float(q_cost_incl),
+                                    float(q_cost_excl),
+                                    float(q_cost_incl),
                                     q_workshop,
                                     q_status,
                                     str(new_file_path or ""),
@@ -432,7 +459,14 @@ else:
                                     log_id,
                                 ),
                             )
-                            db.log_audit(auth.current_username(), "تعديل", "سجلات الصيانة", log_id, f"{q_job} • {q_cost:,.2f}")
+                            db.log_audit(
+                                auth.current_username(),
+                                "تعديل",
+                                "سجلات الصيانة",
+                                log_id,
+                                f"{q_job} • بدون ضريبة {q_cost_excl:,.2f} / "
+                                f"شامل الضريبة {q_cost_incl:,.2f}",
+                            )
                             st.session_state.pop(f"editing_log_id", None)
                             st.success("تم التعديل بنجاح.")
                             st.rerun()

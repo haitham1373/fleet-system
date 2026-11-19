@@ -61,6 +61,19 @@ logs_df = db.read_df(logs_query)
 if not logs_df.empty:
     logs_df["_date"] = pd.to_datetime(logs_df["DoneDate"], errors="coerce")
     logs_df["_cost"] = pd.to_numeric(logs_df["Cost"], errors="coerce").fillna(0.0)
+    # الأعمدة الجديدة اختيارية للسجلات القديمة: نرجع للعمود Cost عند غيابها.
+    logs_df["_cost_incl"] = pd.to_numeric(
+        logs_df.get("CostInclVAT", logs_df["_cost"]), errors="coerce"
+    ).fillna(0.0)
+    logs_df["_cost_incl"] = logs_df["_cost_incl"].where(
+        logs_df["_cost_incl"] != 0, logs_df["_cost"]
+    )
+    logs_df["_cost_excl"] = pd.to_numeric(
+        logs_df.get("CostExclVAT", logs_df["_cost_incl"]), errors="coerce"
+    ).fillna(0.0)
+    logs_df["_cost_excl"] = logs_df["_cost_excl"].where(
+        logs_df["_cost_excl"] != 0, logs_df["_cost_incl"]
+    )
 
 if generate_btn:
     filtered_df = logs_df.copy() if not logs_df.empty else logs_df
@@ -81,6 +94,7 @@ if generate_btn:
         ]
 
     total_fleet_cost = 0.0
+    total_fleet_cost_excl = 0.0
     groups: list[dict] = []
 
     if not filtered_df.empty:
@@ -89,8 +103,10 @@ if generate_btn:
         for (bus_id, v_type), group in grouped:
             bus_id_str = str(bus_id or "—")
             v_type_str = str(v_type or "مصروفات عامة")
-            bus_cost = float(group["_cost"].sum())
+            bus_cost = float(group["_cost_incl"].sum())
+            bus_cost_excl = float(group["_cost_excl"].sum())
             total_fleet_cost += bus_cost
+            total_fleet_cost_excl += bus_cost_excl
 
             rows: list[dict] = []
             for _, row in group.iterrows():
@@ -99,7 +115,9 @@ if generate_btn:
                         "bus_id": bus_id_str,
                         "date": str(row.get("DoneDate") or "—"),
                         "job": str(row.get("JobType") or "—"),
-                        "cost": float(row.get("_cost") or 0.0),
+                        "cost": float(row.get("_cost_incl") or 0.0),
+                        "cost_excl": float(row.get("_cost_excl") or 0.0),
+                        "cost_incl": float(row.get("_cost_incl") or 0.0),
                         "shop": str(row.get("Workshop") or "—"),
                         "status": str(row.get("InvoiceStatus") or "مدفوع"),
                     }
@@ -111,6 +129,8 @@ if generate_btn:
                     "vehicle_type": v_type_str,
                     "rows": rows,
                     "total": bus_cost,
+                    "total_excl": bus_cost_excl,
+                    "total_incl": bus_cost,
                 }
             )
 
@@ -120,6 +140,7 @@ if generate_btn:
         type_filter=type_filter,
         groups=groups,
         total_cost=total_fleet_cost,
+        total_cost_excl=total_fleet_cost_excl,
     )
 
     st.session_state["comprehensive_report_name"] = (

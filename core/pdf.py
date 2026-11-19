@@ -1235,10 +1235,12 @@ def build_comprehensive_report_pdf(
     type_filter: str,
     groups: list[dict],
     total_cost: float,
+    total_cost_excl: float | None = None,
 ) -> bytes:
     """يبني التقرير الشامل لصيانة الأسطول بالهوية البصرية الجديدة."""
     styles = _styles()
     _, bold_font = register_fonts()
+    total_excl = total_cost if total_cost_excl is None else total_cost_excl
 
     flowables: list = _header(
         styles,
@@ -1262,7 +1264,10 @@ def build_comprehensive_report_pdf(
             [
                 ("عدد المركبات / البنود", str(len(groups))),
                 ("عدد سجلات الصيانة", str(records_count)),
-                ("إجمالي التكلفة", f"{total_cost:,.1f} ريال"),
+                (
+                    "إجمالي (بدون / شامل الضريبة)",
+                    f"{total_excl:,.1f} / {total_cost:,.1f} ريال",
+                ),
             ],
             styles,
         )
@@ -1297,15 +1302,25 @@ def build_comprehensive_report_pdf(
         )
         flowables.append(empty_card)
     else:
-        # ترتيب الأعمدة من اليسار إلى اليمين ليطابق العرض العربي.
-        headers = ["الرقم", "التاريخ", "نوع العمل", "التكلفة", "الورشة", "الحالة"]
+        # الترتيب المعروض من اليمين لليسار: الرقم، التاريخ، الورشة، نوع العمل،
+        # بدون ضريبة، شامل الضريبة، الحالة. والقائمة التالية مرتبة من اليسار لليمين.
+        headers = [
+            "الحالة",
+            "شامل الضريبة",
+            "بدون ضريبة",
+            "نوع العمل",
+            "الورشة",
+            "التاريخ",
+            "الرقم",
+        ]
         widths = [
-            CONTENT_WIDTH * 0.12,
-            CONTENT_WIDTH * 0.15,
-            CONTENT_WIDTH * 0.24,
             CONTENT_WIDTH * 0.14,
-            CONTENT_WIDTH * 0.19,
-            CONTENT_WIDTH * 0.16,
+            CONTENT_WIDTH * 0.14,
+            CONTENT_WIDTH * 0.14,
+            CONTENT_WIDTH * 0.21,
+            CONTENT_WIDTH * 0.15,
+            CONTENT_WIDTH * 0.12,
+            CONTENT_WIDTH * 0.10,
         ]
         for index, group in enumerate(groups, start=1):
             bus_id = str(group.get("bus_id") or "—")
@@ -1319,40 +1334,53 @@ def build_comprehensive_report_pdf(
                 [Paragraph(rtl(head), styles["table_head"]) for head in headers]
             ]
             for row in group.get("rows", []):
+                cost_incl = float(row.get("cost_incl") or row.get("cost") or 0)
+                cost_excl = float(row.get("cost_excl") or cost_incl)
                 data.append(
                     [
+                        _status_paragraph(row.get("status"), styles),
                         Paragraph(
-                            rtl(_display_value(row.get("bus_id"))),
+                            rtl(f"{cost_incl:,.1f} ريال"),
                             styles["table_cell"],
                         ),
                         Paragraph(
-                            rtl(_display_value(row.get("date"))), styles["table_cell"]
+                            rtl(f"{cost_excl:,.1f} ريال"),
+                            styles["table_cell"],
                         ),
                         Paragraph(
                             rtl(_display_value(row.get("job"))), styles["table_cell"]
                         ),
                         Paragraph(
-                            rtl(f"{float(row.get('cost') or 0):,.1f} ريال"),
-                            styles["table_cell"],
-                        ),
-                        Paragraph(
                             rtl(_display_value(row.get("shop"))), styles["table_cell"]
                         ),
-                        _status_paragraph(row.get("status"), styles),
+                        Paragraph(
+                            rtl(_display_value(row.get("date"))), styles["table_cell"]
+                        ),
+                        Paragraph(
+                            rtl(_display_value(row.get("bus_id"))),
+                            styles["table_cell"],
+                        ),
                     ]
                 )
 
             table = _data_table(
                 data, widths, header_background=BRAND_600, row_padding=8
             )
-            total = float(group.get("total") or 0.0)
+            total_incl = float(
+                group.get("total_incl") or group.get("total") or 0.0
+            )
+            total_excl_group = float(
+                group.get("total_excl") or total_incl
+            )
             total_box = Table(
                 [
                     [
                         Paragraph(
                             rtl(
-                                "إجمالي تكلفة المركبة / البند رقم : "
-                                f"{bus_id} ({vehicle_type}) : {total:,.1f} ريال"
+                                "إجمالي المركبة / البند رقم : "
+                                f"{bus_id} ({vehicle_type}) — "
+                                f"بدون ضريبة {total_excl_group:,.1f} / "
+                                f"شامل الضريبة {total_incl:,.1f} ريال"
                             ),
                             styles["total"],
                         )
@@ -1386,8 +1414,9 @@ def build_comprehensive_report_pdf(
                 [
                     Paragraph(
                         rtl(
-                            "إجمالي التكلفة الكلية للأسطول والبنود المختارة: "
-                            f"{total_cost:,.1f} ريال"
+                            "إجمالي الأسطول والبنود المختارة — "
+                            f"بدون ضريبة {total_excl:,.1f} / "
+                            f"شامل الضريبة {total_cost:,.1f} ريال"
                         ),
                         styles["grand_total"],
                     )

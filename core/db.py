@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
@@ -11,7 +10,7 @@ from typing import Any, Iterable, Sequence
 
 import pandas as pd
 
-from .config import BACKUP_DIR, DB_PATH, ensure_directories
+from .config import BACKUP_DIR, DB_PATH, ensure_directories, setting
 from .security import hash_password
 from .utils import (
     clean_text,
@@ -152,6 +151,20 @@ _TABLES: tuple[str, ...] = (
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS Hotels (
+        HotelName TEXT PRIMARY KEY,
+        Notes TEXT,
+        CreatedAt TEXT
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS Stations (
+        StationName TEXT PRIMARY KEY,
+        Notes TEXT,
+        CreatedAt TEXT
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS Buses (
         BusID TEXT PRIMARY KEY,
         VehicleType TEXT,
@@ -184,6 +197,8 @@ _TABLES: tuple[str, ...] = (
         DoneDate TEXT,
         JobType TEXT,
         Cost REAL,
+        CostExclVAT REAL,
+        CostInclVAT REAL,
         Workshop TEXT,
         InvoiceStatus TEXT,
         InvoiceFile TEXT,
@@ -205,6 +220,7 @@ _TABLES: tuple[str, ...] = (
         WarrantyFile TEXT,
         DaysRemaining INTEGER,
         WarrantyStatus TEXT,
+        Notes TEXT,
         CreatedAt TEXT
     )
     """,
@@ -228,6 +244,7 @@ _TABLES: tuple[str, ...] = (
         StartDate TEXT,
         EndDate TEXT,
         ContractCost REAL,
+        Amount REAL,
         ContractFile TEXT,
         Notes TEXT,
         StationName TEXT,
@@ -241,6 +258,8 @@ _TABLES: tuple[str, ...] = (
         ParkingLocation TEXT,
         ParkingDate TEXT,
         Cost REAL,
+        InvoiceDate TEXT,
+        Amount REAL,
         InvoiceFile TEXT,
         Notes TEXT,
         HotelName TEXT,
@@ -307,6 +326,18 @@ _COLUMN_MIGRATIONS: dict[str, dict[str, str]] = {
     },
     "Buses": {
         "VehicleType": "TEXT DEFAULT 'باص'",
+        "Model": "TEXT",
+        "OperationNumber": "TEXT",
+        "OdoCurrent": "REAL",
+        "OdoLast": "REAL",
+        "KmRemaining": "REAL",
+        "LastDate": "TEXT",
+        "NextDate": "TEXT",
+        "MaintType": "TEXT",
+        "InspectionDate": "TEXT",
+        "DaysToInspection": "INTEGER",
+        "DaysToMaintenance": "INTEGER",
+        "AlertStatus": "TEXT",
         "BatteryStatus": "TEXT",
         "WarrantyExpiry": "TEXT",
         "BatteryInstallDate": "TEXT",
@@ -317,26 +348,64 @@ _COLUMN_MIGRATIONS: dict[str, dict[str, str]] = {
         "UpdatedAt": "TEXT",
     },
     "Logs": {
+        "BusID": "TEXT",
+        "DoneDate": "TEXT",
+        "JobType": "TEXT",
+        "Cost": "REAL",
+        "CostExclVAT": "REAL",
+        "CostInclVAT": "REAL",
+        "Workshop": "TEXT",
+        "InvoiceStatus": "TEXT",
+        "InvoiceFile": "TEXT",
         "Notes": "TEXT",
         "CreatedAt": "TEXT",
     },
     "Batteries": {
+        "BusID": "TEXT",
+        "BatteryType": "TEXT",
+        "InstallDate": "TEXT",
+        "WarrantyMonths": "INTEGER",
+        "WarrantyDaysLeft": "INTEGER",
+        "BatteryStatus": "TEXT",
+        "BatteryFile": "TEXT",
         "Workshop": "TEXT",
         "WarrantyFile": "TEXT",
         "DaysRemaining": "INTEGER",
         "WarrantyStatus": "TEXT",
+        "Notes": "TEXT",
         "CreatedAt": "TEXT",
     },
     "InspectionReports": {
+        "InspectionDate": "TEXT",
+        "ExpiryDate": "TEXT",
+        "ResultStatus": "TEXT",
+        "ReportFile": "TEXT",
+        "Notes": "TEXT",
         "CreatedAt": "TEXT",
     },
     "HotelContracts": {
+        "HotelName": "TEXT",
+        "BusID": "TEXT",
+        "StartDate": "TEXT",
+        "EndDate": "TEXT",
         "StationName": "TEXT",
+        "ContractCost": "REAL",
+        "Amount": "REAL",
+        "ContractFile": "TEXT",
+        "Notes": "TEXT",
         "CreatedAt": "TEXT",
     },
     "SmartParkingInvoices": {
+        "BusID": "TEXT",
+        "ParkingLocation": "TEXT",
         "HotelName": "TEXT",
         "StationName": "TEXT",
+        "ParkingDate": "TEXT",
+        "Cost": "REAL",
+        "InvoiceDate": "TEXT",
+        "Amount": "REAL",
+        "InvoiceFile": "TEXT",
+        "Notes": "TEXT",
         "CreatedAt": "TEXT",
     },
     "ParkingContracts": {
@@ -344,6 +413,14 @@ _COLUMN_MIGRATIONS: dict[str, dict[str, str]] = {
         "CreatedAt": "TEXT",
     },
     "ParkingBills": {
+        "CreatedAt": "TEXT",
+    },
+    "Hotels": {
+        "Notes": "TEXT",
+        "CreatedAt": "TEXT",
+    },
+    "Stations": {
+        "Notes": "TEXT",
         "CreatedAt": "TEXT",
     },
 }
@@ -418,6 +495,75 @@ def _migrate_data(connection: sqlite3.Connection) -> None:
             (f"PC-{int(row['rowid']):05d}", row["rowid"]),
         )
 
+    # توحيد حقول الجداول القديمة مع الحقول الحديثة التي تستخدمها الواجهة.
+    hotel_columns = _table_columns(connection, "HotelContracts")
+    if {"Amount", "ContractCost"} <= hotel_columns:
+        connection.execute(
+            "UPDATE HotelContracts SET Amount=ContractCost "
+            "WHERE Amount IS NULL AND ContractCost IS NOT NULL"
+        )
+
+    parking_columns = _table_columns(connection, "SmartParkingInvoices")
+    if {"InvoiceDate", "ParkingDate"} <= parking_columns:
+        connection.execute(
+            "UPDATE SmartParkingInvoices SET InvoiceDate=ParkingDate "
+            "WHERE (InvoiceDate IS NULL OR TRIM(InvoiceDate)='') "
+            "AND ParkingDate IS NOT NULL AND TRIM(ParkingDate)<>''"
+        )
+    if {"Amount", "Cost"} <= parking_columns:
+        connection.execute(
+            "UPDATE SmartParkingInvoices SET Amount=Cost "
+            "WHERE Amount IS NULL AND Cost IS NOT NULL"
+        )
+
+    inspection_columns = _table_columns(connection, "InspectionReports")
+    if {"InspectionDate", "TestDate"} <= inspection_columns:
+        connection.execute(
+            "UPDATE InspectionReports SET InspectionDate=TestDate "
+            "WHERE (InspectionDate IS NULL OR TRIM(InspectionDate)='') "
+            "AND TestDate IS NOT NULL AND TRIM(TestDate)<>''"
+        )
+    if {"ResultStatus", "Result"} <= inspection_columns:
+        connection.execute(
+            "UPDATE InspectionReports SET ResultStatus=Result "
+            "WHERE (ResultStatus IS NULL OR TRIM(ResultStatus)='') "
+            "AND Result IS NOT NULL AND TRIM(Result)<>''"
+        )
+
+    # ترحيل دليل الفنادق والمحطات القديم إلى الجدولين المستخدمين حالياً.
+    tables = {
+        row[0]
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+    }
+    if {"HotelsList", "Hotels"} <= tables:
+        connection.execute(
+            """
+            INSERT INTO Hotels (HotelName, CreatedAt)
+            SELECT l.HotelName, ?
+              FROM HotelsList l
+             WHERE l.HotelName IS NOT NULL AND TRIM(l.HotelName) <> ''
+               AND NOT EXISTS (
+                   SELECT 1 FROM Hotels h WHERE h.HotelName = l.HotelName
+               )
+            """,
+            (now,),
+        )
+    if {"StationsList", "Stations"} <= tables:
+        connection.execute(
+            """
+            INSERT INTO Stations (StationName, CreatedAt)
+            SELECT l.StationName, ?
+              FROM StationsList l
+             WHERE l.StationName IS NOT NULL AND TRIM(l.StationName) <> ''
+               AND NOT EXISTS (
+                   SELECT 1 FROM Stations s WHERE s.StationName = l.StationName
+               )
+            """,
+            (now,),
+        )
+
     # ترحيل بيانات البطاريات القديمة من جدول المركبات إلى جدول البطاريات.
     legacy_buses = connection.execute(
         """
@@ -488,7 +634,7 @@ def _seed_data(connection: sqlite3.Connection) -> None:
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     if connection.execute("SELECT COUNT(*) FROM Users").fetchone()[0] == 0:
-        initial_password = os.environ.get("FLEET_ADMIN_PASSWORD", "1234")
+        initial_password = setting("FLEET_ADMIN_PASSWORD", "1234")
         connection.execute(
             """
             INSERT INTO Users (Username, Password, FullName, Role, IsActive, CreatedAt)
@@ -561,6 +707,8 @@ def table_count(table: str) -> int:
         "Batteries",
         "InspectionReports",
         "HotelContracts",
+        "Hotels",
+        "Stations",
         "SmartParkingInvoices",
         "ParkingContracts",
         "ParkingBills",
