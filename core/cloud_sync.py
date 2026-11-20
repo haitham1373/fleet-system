@@ -82,7 +82,12 @@ def get_error() -> str | None:
 # ---------------------------------------------------------------------------
 def _api(method: str, path: str, payload: dict | None = None) -> dict:
     token, repo, _, _ = _settings()
-    url = f"https://api.github.com/repos/{repo}/{path.lstrip('/')}"
+    # أي جزء ديناميكي في المسار لازم يتحوّل لـ ASCII قبل ما urllib يعمل Request.
+    safe_path = quote(path, safe="/?&=%:")
+    # الـ slash بين owner و repo لازم يفضل slash (GitHub ما بيفهمش %2F في المسار).
+    safe_repo = quote(repo, safe="/")
+    url = f"https://api.github.com/repos/{safe_repo}/{safe_path.lstrip('/')}"
+    url.encode("ascii")  # فحص صريح: أي حرف غير ASCII هنا هي سبب التحذير القديم.
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github+json",
@@ -303,7 +308,7 @@ def push_upload(relative_path: str) -> None:
     key = f"{_UPLOADS_PREFIX}/{relative_path}"
     try:
         _, sha = get_file(key)
-        put_file(key, local.read_bytes(), f"Sync upload {relative_path}", sha)
+        put_file(key, local.read_bytes(), "Sync uploaded file", sha)
 
         manifest, manifest_sha = get_file(_MANIFEST_KEY)
         files: list[str] = []
@@ -326,15 +331,20 @@ def push_upload(relative_path: str) -> None:
         _warn(error)
 
 
+def _safe_text(value: object) -> str:
+    """نص ASCII آمن للّوجات ورسائل الحالة (العربي بيظهر كـ \\uXXXX)."""
+    return str(value).encode("ascii", "backslashreplace").decode("ascii")
+
+
 def _warn(error: object, *, ui: bool = True) -> None:
     global _STATE_ERROR
-    _STATE_ERROR = str(error)
+    _STATE_ERROR = _safe_text(error)
     if ui:
         try:
             import streamlit as st
 
-            st.warning(f"تعذرت مزامنة البيانات مع GitHub: {error}")
+            st.warning(f"تعذرت مزامنة البيانات مع GitHub — راجع الأسرار وصلاحيات التوكن: {_STATE_ERROR}")
             return
         except Exception:
             pass
-    print(f"[cloud_sync] {error}")
+    print(f"[cloud_sync] {_STATE_ERROR}")
