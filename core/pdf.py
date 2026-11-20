@@ -329,6 +329,14 @@ def _styles() -> dict[str, ParagraphStyle]:
             alignment=TA_CENTER,
             textColor=MUTED,
         ),
+        "signature_name": ParagraphStyle(
+            "signature_name",
+            fontName=bold_font,
+            fontSize=10,
+            leading=14,
+            alignment=TA_CENTER,
+            textColor=PRIMARY,
+        ),
         "footer_ar": ParagraphStyle(
             "footer_ar",
             fontName=body_font,
@@ -665,10 +673,6 @@ def _frame_canvas(canvas, doc) -> None:
         stroke=1,
         fill=0,
     )
-    canvas.setFillColor(PRIMARY)
-    canvas.rect(0, height - 10, width, 10, stroke=0, fill=1)
-    canvas.setFillColor(ACCENT)
-    canvas.rect(0, height - 13, width, 3, stroke=0, fill=1)
     canvas.restoreState()
 
 
@@ -1244,15 +1248,14 @@ def build_comprehensive_report_pdf(
 
     flowables: list = _header(
         styles,
-        title="التقرير الشامل لصيانة الأسطول",
+        title="",
         subtitle="ملخص المصروفات وأعمال الصيانة للمركبات والبنود المختارة",
-        reference=f"المرجع: RPT-{date.today():%Y%m%d}",
+        reference="",
     )
     meta_fields = [
         ("فترة التقرير:", f"من {ltr(start_date)} إلى {ltr(end_date)}"),
         ("التصفية:", type_filter),
         ("تاريخ الإصدار:", f"{date.today():%d-%m-%Y}"),
-        ("العملة:", "ريال سعودي"),
     ]
     flowables.append(_content_section("معايير التقرير", styles))
     flowables.append(_info_table(meta_fields, styles, bold_font))
@@ -1446,13 +1449,17 @@ def build_comprehensive_report_pdf(
         approval = Table(
             [
                 [
-                    Paragraph(rtl("أعدّ التقرير"), styles["signature"]),
                     Paragraph(rtl("اعتماد مدير الأسطول"), styles["signature"]),
+                    Paragraph(rtl("أعدّ التقرير"), styles["signature"]),
+                ],
+                [
+                    Paragraph(rtl("سيف المليكى"), styles["signature_name"]),
+                    Paragraph(rtl("هيثم غريب"), styles["signature_name"]),
                 ],
                 ["", ""],
             ],
             colWidths=[CONTENT_WIDTH / 2] * 2,
-            rowHeights=[20, 40],
+            rowHeights=[20, 20, 38],
         )
         approval.setStyle(
             TableStyle(
@@ -1461,7 +1468,7 @@ def build_comprehensive_report_pdf(
                     ("BOX", (0, 0), (-1, -1), 0.7, BORDER),
                     ("LINEAFTER", (0, 0), (0, -1), 0.5, BORDER),
                     ("LINEBELOW", (0, 0), (-1, 0), 0.5, BORDER),
-                    ("LINEBELOW", (0, 1), (-1, 1), 0.9, MUTED),
+                    ("LINEBELOW", (0, 2), (-1, 2), 0.9, MUTED),
                     ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                     ("ALIGN", (0, 0), (-1, -1), "CENTER"),
                     ("LEFTPADDING", (0, 0), (-1, -1), 10),
