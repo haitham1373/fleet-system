@@ -125,6 +125,8 @@ def get_file(key: str) -> tuple[bytes | None, str | None]:
     download_url = payload.get("download_url")
     if download_url:
         token = _settings()[0]
+        # GitHub قد يرجع URL فيه أسماء ملفات عربية غير مقتبسة — نأمّنه هنا كمان.
+        download_url = quote(str(download_url), safe=":/?&=%")
         request = urllib.request.Request(
             download_url,
             headers={
