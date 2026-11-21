@@ -323,17 +323,17 @@ def _styles() -> dict[str, ParagraphStyle]:
         ),
         "signature": ParagraphStyle(
             "signature",
-            fontName=body_font,
-            fontSize=8.5,
-            leading=12,
+            fontName=bold_font,
+            fontSize=11,
+            leading=16,
             alignment=TA_CENTER,
-            textColor=MUTED,
+            textColor=PRIMARY,
         ),
         "signature_name": ParagraphStyle(
             "signature_name",
             fontName=bold_font,
-            fontSize=10,
-            leading=14,
+            fontSize=13,
+            leading=18,
             alignment=TA_CENTER,
             textColor=PRIMARY,
         ),
@@ -1464,7 +1464,7 @@ def build_comprehensive_report_pdf(
                 ["", ""],
             ],
             colWidths=[CONTENT_WIDTH / 2] * 2,
-            rowHeights=[20, 20, 38],
+            rowHeights=[26, 26, 42],
         )
         approval.setStyle(
             TableStyle(
