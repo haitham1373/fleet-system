@@ -36,10 +36,12 @@ with st.expander("🔍 خيارات تصفية التقرير الشامل", exp
     with col2:
         end_date = st.date_input("إلى تاريخ", value=date.today(), key="rep_end_date")
         
-    type_filter = st.selectbox(
-        "نوع المركبة / البند",
-        ["-- الكل --", "مصروفات عامة", *vehicle_types],
+    type_filter = st.multiselect(
+        "نوع المركبة / البند (يمكن اختيار أكثر من نوع)",
+        [*vehicle_types, "مصروفات عامة"],
         key="rep_type_filter",
+        help="اختر نوعاً واحداً أو أكثر. اترك القائمة فارغة لعرض كل الأنواع.",
+        placeholder="كل الأنواع",
     )
     
     generate_btn = st.button(
@@ -77,17 +79,17 @@ if not logs_df.empty:
 
 if generate_btn:
     filtered_df = logs_df.copy() if not logs_df.empty else logs_df
+    selected_types = [str(value) for value in type_filter if str(value).strip()]
 
-    # تطبيق فلتر النوع والتاريخ
+    # تطبيق فلتر النوع والتاريخ (أكثر من نوع في نفس التقرير)
+    if not filtered_df.empty and selected_types:
+        type_mask = filtered_df["VehicleType"].astype(str).isin(selected_types)
+        if "مصروفات عامة" in selected_types:
+            type_mask |= filtered_df["BusID"].astype(str) == "مصروفات عامة"
+        filtered_df = filtered_df[type_mask]
+
+    # فلترة حسب الفترة المحددة (بتنطبق حتى لو مفيش نوع مختار)
     if not filtered_df.empty:
-        if type_filter == "مصروفات عامة":
-            filtered_df = filtered_df[filtered_df["BusID"] == "مصروفات عامة"]
-        elif type_filter != "-- الكل --":
-            filtered_df = filtered_df[
-                filtered_df["VehicleType"].astype(str) == type_filter
-            ]
-
-        # فلترة حسب الفترة المحددة
         filtered_df = filtered_df[
             (filtered_df["_date"].dt.date >= start_date)
             & (filtered_df["_date"].dt.date <= end_date)
@@ -137,7 +139,7 @@ if generate_btn:
     report_bytes = pdf.build_comprehensive_report_pdf(
         start_date=start_date,
         end_date=end_date,
-        type_filter=type_filter,
+        type_filter=selected_types,
         groups=groups,
         total_cost=total_fleet_cost,
         total_cost_excl=total_fleet_cost_excl,

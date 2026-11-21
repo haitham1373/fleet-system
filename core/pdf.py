@@ -1236,7 +1236,7 @@ def build_comprehensive_report_pdf(
     *,
     start_date: object,
     end_date: object,
-    type_filter: str,
+    type_filter: str | list[str] | None,
     groups: list[dict],
     total_cost: float,
     total_cost_excl: float | None = None,
@@ -1245,6 +1245,11 @@ def build_comprehensive_report_pdf(
     styles = _styles()
     _, bold_font = register_fonts()
     total_excl = total_cost if total_cost_excl is None else total_cost_excl
+    if isinstance(type_filter, (list, tuple, set)):
+        filter_label = "، ".join(str(value).strip() for value in type_filter if str(value).strip())
+        filter_label = filter_label or "كل الأنواع"
+    else:
+        filter_label = str(type_filter).strip() if type_filter else "كل الأنواع"
 
     flowables: list = _header(
         styles,
@@ -1254,7 +1259,7 @@ def build_comprehensive_report_pdf(
     )
     meta_fields = [
         ("فترة التقرير:", f"من {ltr(start_date)} إلى {ltr(end_date)}"),
-        ("التصفية:", type_filter),
+        ("التصفية:", filter_label),
         ("تاريخ الإصدار:", f"{date.today():%d-%m-%Y}"),
     ]
     flowables.append(_content_section("معايير التقرير", styles))
