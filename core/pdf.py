@@ -42,9 +42,10 @@ CONTENT_WIDTH = PAGE_WIDTH - (2 * MARGIN_X)
 # ---------------------------------------------------------------------------
 # هوية التصميم (مطابقة لواجهة التطبيق بعد التجديد)
 # ---------------------------------------------------------------------------
-BRAND_800 = colors.HexColor("#0284c7")
-BRAND_700 = colors.HexColor("#0284c7")
-BRAND_600 = colors.HexColor("#0284c7")
+BRAND_800 = colors.HexColor("#0ea5e9")
+BRAND_700 = colors.HexColor("#0ea5e9")
+BRAND_600 = colors.HexColor("#0ea5e9")
+BRAND_INK = colors.HexColor("#0284c7")
 PRIMARY = BRAND_700
 PRIMARY_LIGHT = BRAND_600
 PRIMARY_SOFT = colors.HexColor("#e0f2fe")
@@ -188,7 +189,7 @@ def _styles() -> dict[str, ParagraphStyle]:
             fontSize=14,
             leading=18,
             alignment=TA_RIGHT,
-            textColor=colors.white,
+            textColor=DARK,
         ),
         "brand_ar_small": ParagraphStyle(
             "brand_ar_small",
@@ -196,7 +197,7 @@ def _styles() -> dict[str, ParagraphStyle]:
             fontSize=8.5,
             leading=12,
             alignment=TA_RIGHT,
-            textColor=ACCENT_SOFT,
+            textColor=REF_GOLD,
         ),
         "brand_en": ParagraphStyle(
             "brand_en",
@@ -204,7 +205,7 @@ def _styles() -> dict[str, ParagraphStyle]:
             fontSize=9,
             leading=13,
             alignment=TA_LEFT,
-            textColor=colors.white,
+            textColor=DARK,
         ),
         "brand_en_small": ParagraphStyle(
             "brand_en_small",
@@ -220,7 +221,7 @@ def _styles() -> dict[str, ParagraphStyle]:
             fontSize=15,
             leading=20,
             alignment=TA_RIGHT,
-            textColor=BRAND_800,
+            textColor=BRAND_INK,
             keepWithNext=True,
         ),
         "doc_subtitle": ParagraphStyle(
@@ -253,7 +254,7 @@ def _styles() -> dict[str, ParagraphStyle]:
             fontSize=9,
             leading=12,
             alignment=TA_CENTER,
-            textColor=colors.white,
+            textColor=DARK,
         ),
         "table_cell": ParagraphStyle(
             "table_cell",
@@ -269,7 +270,7 @@ def _styles() -> dict[str, ParagraphStyle]:
             fontSize=9,
             leading=12,
             alignment=TA_CENTER,
-            textColor=BRAND_800,
+            textColor=BRAND_INK,
         ),
         "section_title": ParagraphStyle(
             "section_title",
@@ -277,7 +278,7 @@ def _styles() -> dict[str, ParagraphStyle]:
             fontSize=11,
             leading=15,
             alignment=TA_RIGHT,
-            textColor=BRAND_800,
+            textColor=BRAND_INK,
             keepWithNext=True,
         ),
         "section_bar": ParagraphStyle(
@@ -286,7 +287,7 @@ def _styles() -> dict[str, ParagraphStyle]:
             fontSize=10,
             leading=14,
             alignment=TA_RIGHT,
-            textColor=colors.white,
+            textColor=DARK,
             keepWithNext=True,
         ),
         "kpi_label": ParagraphStyle(
@@ -303,7 +304,7 @@ def _styles() -> dict[str, ParagraphStyle]:
             fontSize=13,
             leading=17,
             alignment=TA_CENTER,
-            textColor=BRAND_800,
+            textColor=BRAND_INK,
         ),
         "total": ParagraphStyle(
             "total",
@@ -311,7 +312,7 @@ def _styles() -> dict[str, ParagraphStyle]:
             fontSize=9.5,
             leading=13,
             alignment=TA_CENTER,
-            textColor=BRAND_800,
+            textColor=BRAND_INK,
         ),
         "grand_total": ParagraphStyle(
             "grand_total",
@@ -319,7 +320,7 @@ def _styles() -> dict[str, ParagraphStyle]:
             fontSize=13,
             leading=18,
             alignment=TA_CENTER,
-            textColor=colors.white,
+            textColor=DARK,
         ),
         "signature": ParagraphStyle(
             "signature",
@@ -327,7 +328,7 @@ def _styles() -> dict[str, ParagraphStyle]:
             fontSize=11,
             leading=16,
             alignment=TA_CENTER,
-            textColor=PRIMARY,
+            textColor=BRAND_INK,
         ),
         "signature_name": ParagraphStyle(
             "signature_name",
@@ -335,7 +336,7 @@ def _styles() -> dict[str, ParagraphStyle]:
             fontSize=13,
             leading=18,
             alignment=TA_CENTER,
-            textColor=PRIMARY,
+            textColor=BRAND_INK,
         ),
         "footer_ar": ParagraphStyle(
             "footer_ar",
@@ -755,7 +756,7 @@ def _data_table(
         TableStyle(
             [
                 ("BACKGROUND", (0, 0), (-1, 0), header_background),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("TEXTCOLOR", (0, 0), (-1, 0), DARK),
                 ("LINEBELOW", (0, 0), (-1, 0), 2.5, ACCENT),
                 ("GRID", (0, 0), (-1, -1), 0.5, BORDER),
                 ("BOX", (0, 0), (-1, -1), 0.8, PRIMARY),
