@@ -53,6 +53,7 @@ with st.expander("🔍 خيارات تصفية التقرير الشامل", exp
 # استعلام جلب البيانات المباشر من جدول Logs الصحيح تماماً مثل صفحة السجلات
 logs_query = """
     SELECT l.*, COALESCE(b.VehicleType, 'مصروفات عامة') AS VehicleType,
+           COALESCE(b.VehicleUser, '') AS VehicleUser,
            b.Model
       FROM Logs l
       LEFT JOIN Buses b ON b.BusID = l.BusID
@@ -101,8 +102,10 @@ if generate_btn:
 
     if not filtered_df.empty:
         # تجميع السجلات حسب المركبة أو البند (BusID)
-        grouped = filtered_df.groupby(["BusID", "VehicleType"], sort=False)
-        for (bus_id, v_type), group in grouped:
+        grouped = filtered_df.groupby(
+            ["BusID", "VehicleType", "VehicleUser"], sort=False
+        )
+        for (bus_id, v_type, v_user), group in grouped:
             bus_id_str = str(bus_id or "—")
             v_type_str = str(v_type or "مصروفات عامة")
             bus_cost = float(group["_cost_incl"].sum())
@@ -129,6 +132,7 @@ if generate_btn:
                 {
                     "bus_id": bus_id_str,
                     "vehicle_type": v_type_str,
+                    "vehicle_user": str(v_user or "—"),
                     "rows": rows,
                     "total": bus_cost,
                     "total_excl": bus_cost_excl,

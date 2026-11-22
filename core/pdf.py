@@ -1333,8 +1333,14 @@ def build_comprehensive_report_pdf(
         for index, group in enumerate(groups, start=1):
             bus_id = str(group.get("bus_id") or "—")
             vehicle_type = str(group.get("vehicle_type") or "مصروفات عامة")
+            vehicle_user = str(group.get("vehicle_user") or "").strip()
+            user_suffix = (
+                f" - المستخدم: {vehicle_user}"
+                if vehicle_user and vehicle_user != "—"
+                else ""
+            )
             title = _section_header(
-                f"{index}. {vehicle_type} - رقم المركبة / البند : {bus_id}",
+                f"{index}. {vehicle_type} - رقم المركبة / البند : {bus_id}{user_suffix}",
                 styles,
             )
 

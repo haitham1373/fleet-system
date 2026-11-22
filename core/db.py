@@ -176,6 +176,7 @@ _TABLES: tuple[str, ...] = (
     CREATE TABLE IF NOT EXISTS Buses (
         BusID TEXT PRIMARY KEY,
         VehicleType TEXT,
+        VehicleUser TEXT,
         Model TEXT,
         OperationNumber TEXT,
         OdoCurrent REAL,
@@ -335,6 +336,7 @@ _COLUMN_MIGRATIONS: dict[str, dict[str, str]] = {
     },
     "Buses": {
         "VehicleType": "TEXT DEFAULT 'باص'",
+        "VehicleUser": "TEXT",
         "Model": "TEXT",
         "OperationNumber": "TEXT",
         "OdoCurrent": "REAL",

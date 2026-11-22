@@ -156,6 +156,9 @@ with st.expander("➕ إضافة مركبة جديدة"):
                 operation_number = st.text_input(
                     "رقم التشغيل", placeholder="مثال: 101"
                 )
+                vehicle_user = st.text_input(
+                    "اسم مستخدم المركبة", placeholder="اسم السائق / المستخدم"
+                )
                 odo_current = st.number_input(
                     "العداد الحالي (كم)",
                     min_value=0.0,
@@ -215,15 +218,16 @@ with st.expander("➕ إضافة مركبة جديدة"):
                     db.execute(
                         """
                         INSERT INTO Buses (
-                            BusID, VehicleType, Model, OperationNumber,
+                            BusID, VehicleType, VehicleUser, Model, OperationNumber,
                             OdoCurrent, OdoLast, KmRemaining, LastDate, NextDate,
                             MaintType, Notes, OilValidity, DaysToMaintenance,
                             AlertStatus, CreatedAt, UpdatedAt
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             bus_id_clean,
                             vehicle_type,
+                            clean_text(vehicle_user, 80) or "غير متوفر",
                             clean_text(model, 80) or "غير متوفر",
                             clean_text(operation_number, 40) or "غير متوفر",
                             float(odo_current),
@@ -343,6 +347,10 @@ with st.expander("⚙️ تعديل أو حذف مركبة مسجلة"):
                         "رقم التشغيل",
                         value=str(selected_vehicle.get("OperationNumber") or ""),
                     )
+                    edit_vehicle_user = st.text_input(
+                        "اسم مستخدم المركبة",
+                        value=str(selected_vehicle.get("VehicleUser") or ""),
+                    )
                     edit_odo_current = st.number_input(
                         "العداد الحالي (كم)",
                         min_value=0.0,
@@ -413,7 +421,7 @@ with st.expander("⚙️ تعديل أو حذف مركبة مسجلة"):
                             connection.execute(
                                 """
                                 UPDATE Buses
-                                   SET BusID=?, VehicleType=?, Model=?,
+                                   SET BusID=?, VehicleType=?, VehicleUser=?, Model=?,
                                        OperationNumber=?, OdoCurrent=?, OdoLast=?,
                                        KmRemaining=?, LastDate=?, NextDate=?,
                                        MaintType=?, Notes=?, OilValidity=?,
@@ -424,6 +432,7 @@ with st.expander("⚙️ تعديل أو حذف مركبة مسجلة"):
                                 (
                                     new_bus_id,
                                     edit_vehicle_type,
+                                    clean_text(edit_vehicle_user, 80) or "غير متوفر",
                                     clean_text(edit_model, 80) or "غير متوفر",
                                     clean_text(edit_operation_number, 40)
                                     or "غير متوفر",
@@ -614,7 +623,7 @@ else:
         )
     with filter_third:
         search_term = st.text_input(
-            "بحث برقم المركبة أو الموديل أو رقم التشغيل",
+            "بحث برقم المركبة أو المستخدم أو الموديل أو رقم التشغيل",
             placeholder="اكتب للبحث...",
         )
 
@@ -627,6 +636,7 @@ else:
         term = search_term.strip().lower()
         filtered = filtered[
             filtered["BusID"].astype(str).str.lower().str.contains(term, na=False)
+            | filtered["VehicleUser"].astype(str).str.lower().str.contains(term, na=False)
             | filtered["Model"].astype(str).str.lower().str.contains(term, na=False)
             | filtered["OperationNumber"]
             .astype(str)
@@ -638,6 +648,7 @@ else:
         columns={
             "BusID": "رقم المركبة",
             "VehicleType": "نوع المركبة",
+            "VehicleUser": "اسم مستخدم المركبة",
             "Model": "الموديل",
             "OperationNumber": "رقم التشغيل",
             "OdoCurrent": "العداد الحالي",
@@ -651,6 +662,7 @@ else:
     display_columns = [
         "رقم المركبة",
         "نوع المركبة",
+        "اسم مستخدم المركبة",
         "الموديل",
         "رقم التشغيل",
         "العداد الحالي",
