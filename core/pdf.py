@@ -42,8 +42,8 @@ CONTENT_WIDTH = PAGE_WIDTH - (2 * MARGIN_X)
 # ---------------------------------------------------------------------------
 # هوية التصميم (مطابقة لواجهة التطبيق بعد التجديد)
 # ---------------------------------------------------------------------------
-BRAND_800 = colors.HexColor("#0369a1")
-BRAND_700 = colors.HexColor("#0369a1")
+BRAND_800 = colors.HexColor("#0284c7")
+BRAND_700 = colors.HexColor("#0284c7")
 BRAND_600 = colors.HexColor("#0284c7")
 PRIMARY = BRAND_700
 PRIMARY_LIGHT = BRAND_600
@@ -154,7 +154,7 @@ def _field_markup(label: str, value: object, bold_font: str) -> str:
     label_visual = rtl(label)
     value_visual = rtl(_display_value(value))
     bold_label = (
-        f'<font name="{bold_font}" color="#0369a1">'
+        f'<font name="{bold_font}" color="#0284c7">'
         f"{xml_escape(label_visual)}</font>"
     )
     return f"{xml_escape(value_visual)} {bold_label}"
