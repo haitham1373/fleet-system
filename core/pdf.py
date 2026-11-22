@@ -42,15 +42,15 @@ CONTENT_WIDTH = PAGE_WIDTH - (2 * MARGIN_X)
 # ---------------------------------------------------------------------------
 # هوية التصميم (مطابقة لواجهة التطبيق بعد التجديد)
 # ---------------------------------------------------------------------------
-BRAND_800 = colors.HexColor("#0284c7")
-BRAND_700 = colors.HexColor("#0284c7")
-BRAND_600 = colors.HexColor("#0284c7")
-BRAND_INK = colors.HexColor("#0369a1")
+BRAND_800 = colors.HexColor("#64748b")
+BRAND_700 = colors.HexColor("#64748b")
+BRAND_600 = colors.HexColor("#64748b")
+BRAND_INK = colors.HexColor("#334155")
 PRIMARY = BRAND_700
 PRIMARY_LIGHT = BRAND_600
-PRIMARY_SOFT = colors.HexColor("#e0f2fe")
-ACCENT = colors.HexColor("#f59e0b")
-ACCENT_SOFT = colors.HexColor("#fef3c7")
+PRIMARY_SOFT = colors.HexColor("#f1f5f9")
+ACCENT = colors.HexColor("#475569")
+ACCENT_SOFT = colors.HexColor("#f1f5f9")
 DARK = colors.HexColor("#0f172a")
 TEXT = colors.HexColor("#334155")
 MUTED = colors.HexColor("#64748b")
@@ -155,7 +155,7 @@ def _field_markup(label: str, value: object, bold_font: str) -> str:
     label_visual = rtl(label)
     value_visual = rtl(_display_value(value))
     bold_label = (
-        f'<font name="{bold_font}" color="#0369a1">'
+        f'<font name="{bold_font}" color="#334155">'
         f"{xml_escape(label_visual)}</font>"
     )
     return f"{xml_escape(value_visual)} {bold_label}"
