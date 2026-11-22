@@ -2,8 +2,8 @@
 
 يعتمد على ReportLab مع دعم تشكيل الحروف العربية واتجاه النص من اليمين
 إلى اليسار عبر ``arabic_reshaper`` و``python-bidi``. تم توحيد ألوان
-التقارير مع تجديد الواجهة: تدرّج أزرق، لمسة ذهبية، بطاقات واضحة
-وجداول متباعدة تصلح للطباعة المكتبية.
+التقارير مع تجديد الواجهة: أخضر مؤسسي، لمسة ذهبية، بطاقات واضحة
+وجداول متباعدة تصلح للطباعة المكتبية بالأبيض والأسود.
 """
 
 from __future__ import annotations
@@ -42,18 +42,18 @@ CONTENT_WIDTH = PAGE_WIDTH - (2 * MARGIN_X)
 # ---------------------------------------------------------------------------
 # هوية التصميم (مطابقة لواجهة التطبيق بعد التجديد)
 # ---------------------------------------------------------------------------
-BRAND_800 = colors.HexColor("#64748b")
-BRAND_700 = colors.HexColor("#64748b")
-BRAND_600 = colors.HexColor("#64748b")
-BRAND_INK = colors.HexColor("#334155")
+BRAND_800 = colors.HexColor("#2f7d5c")
+BRAND_700 = colors.HexColor("#2f7d5c")
+BRAND_600 = colors.HexColor("#2f7d5c")
+BRAND_INK = colors.HexColor("#0d3326")
 PRIMARY = BRAND_700
 PRIMARY_LIGHT = BRAND_600
-PRIMARY_SOFT = colors.HexColor("#f1f5f9")
-ACCENT = colors.HexColor("#475569")
-ACCENT_SOFT = colors.HexColor("#f1f5f9")
+PRIMARY_SOFT = colors.HexColor("#eaf5ef")
+ACCENT = colors.HexColor("#9a6b1d")
+ACCENT_SOFT = colors.HexColor("#fbf3e4")
 DARK = colors.HexColor("#0f172a")
-TEXT = colors.HexColor("#334155")
-MUTED = colors.HexColor("#64748b")
+TEXT = colors.HexColor("#1f2937")
+MUTED = colors.HexColor("#1f2937")
 BORDER = colors.HexColor("#e2e8f0")
 INFO_BG = colors.HexColor("#f8fafc")
 SUCCESS = colors.HexColor("#166534")
@@ -155,7 +155,7 @@ def _field_markup(label: str, value: object, bold_font: str) -> str:
     label_visual = rtl(label)
     value_visual = rtl(_display_value(value))
     bold_label = (
-        f'<font name="{bold_font}" color="#334155">'
+        f'<font name="{bold_font}" color="#0d3326">'
         f"{xml_escape(label_visual)}</font>"
     )
     return f"{xml_escape(value_visual)} {bold_label}"
@@ -189,7 +189,7 @@ def _styles() -> dict[str, ParagraphStyle]:
             fontSize=14,
             leading=18,
             alignment=TA_RIGHT,
-            textColor=colors.white,
+            textColor=BRAND_INK,
         ),
         "brand_ar_small": ParagraphStyle(
             "brand_ar_small",
@@ -197,7 +197,7 @@ def _styles() -> dict[str, ParagraphStyle]:
             fontSize=8.5,
             leading=12,
             alignment=TA_RIGHT,
-            textColor=ACCENT_SOFT,
+            textColor=BRAND_INK,
         ),
         "brand_en": ParagraphStyle(
             "brand_en",
@@ -205,7 +205,7 @@ def _styles() -> dict[str, ParagraphStyle]:
             fontSize=9,
             leading=13,
             alignment=TA_LEFT,
-            textColor=colors.white,
+            textColor=BRAND_INK,
         ),
         "brand_en_small": ParagraphStyle(
             "brand_en_small",
@@ -213,7 +213,7 @@ def _styles() -> dict[str, ParagraphStyle]:
             fontSize=7.8,
             leading=11,
             alignment=TA_LEFT,
-            textColor=ACCENT_SOFT,
+            textColor=BRAND_INK,
         ),
         "doc_title": ParagraphStyle(
             "doc_title",
@@ -254,7 +254,7 @@ def _styles() -> dict[str, ParagraphStyle]:
             fontSize=9,
             leading=12,
             alignment=TA_CENTER,
-            textColor=colors.white,
+            textColor=BRAND_INK,
         ),
         "table_cell": ParagraphStyle(
             "table_cell",
@@ -287,7 +287,7 @@ def _styles() -> dict[str, ParagraphStyle]:
             fontSize=10,
             leading=14,
             alignment=TA_RIGHT,
-            textColor=colors.white,
+            textColor=BRAND_INK,
             keepWithNext=True,
         ),
         "kpi_label": ParagraphStyle(
@@ -320,7 +320,7 @@ def _styles() -> dict[str, ParagraphStyle]:
             fontSize=13,
             leading=18,
             alignment=TA_CENTER,
-            textColor=colors.white,
+            textColor=BRAND_INK,
         ),
         "signature": ParagraphStyle(
             "signature",
@@ -360,7 +360,7 @@ def _styles() -> dict[str, ParagraphStyle]:
             fontSize=8,
             leading=11,
             alignment=TA_LEFT,
-            textColor=BRAND_700,
+            textColor=BRAND_INK,
         ),
         "empty": ParagraphStyle(
             "empty",
@@ -598,7 +598,7 @@ def _header(
     identity.setStyle(
         TableStyle(
             [
-                ("BACKGROUND", (0, 0), (-1, -1), PRIMARY),
+                ("BACKGROUND", (0, 0), (-1, -1), PRIMARY_SOFT),
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                 ("ALIGN", (1, 0), (1, 0), "CENTER"),
                 ("LEFTPADDING", (0, 0), (-1, -1), 12),
@@ -747,16 +747,16 @@ def _data_table(
     data: list[list[Paragraph]],
     widths: list[float],
     *,
-    header_background: colors.Color = PRIMARY,
+    header_background: colors.Color = PRIMARY_SOFT,
     row_padding: float = 7,
 ) -> Table:
-    """جدول بيانات موحّد: رأس داكن، خط ذهبي، صفوف متبادلة وحدود ناعمة."""
+    """جدول بيانات موحّد: رأس فاتح، خط ذهبي، صفوف متبادلة وحدود ناعمة."""
     table = Table(data, colWidths=widths, repeatRows=1)
     table.setStyle(
         TableStyle(
             [
                 ("BACKGROUND", (0, 0), (-1, 0), header_background),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("TEXTCOLOR", (0, 0), (-1, 0), BRAND_INK),
                 ("LINEBELOW", (0, 0), (-1, 0), 2.5, ACCENT),
                 ("GRID", (0, 0), (-1, -1), 0.5, BORDER),
                 ("BOX", (0, 0), (-1, -1), 0.8, PRIMARY),
@@ -776,7 +776,7 @@ def _data_table(
 def _section_header(
     text: str, styles: dict[str, ParagraphStyle]
 ) -> Table:
-    """عنوان مجموعة/مركبة على هيئة شريط أزرق فاتح بلمسة ذهبية."""
+    """عنوان مجموعة/مركبة على هيئة شريط أخضر فاتح بلمسة ذهبية."""
     header = Table(
         [[Paragraph(rtl(text), styles["section_title"])]],
         colWidths=[CONTENT_WIDTH],
@@ -809,7 +809,7 @@ def _content_section(
     bar.setStyle(
         TableStyle(
             [
-                ("BACKGROUND", (0, 0), (-1, -1), BRAND_800),
+                ("BACKGROUND", (0, 0), (-1, -1), PRIMARY_SOFT),
                 ("LINEAFTER", (0, 0), (-1, -1), 3, ACCENT),
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                 ("LEFTPADDING", (0, 0), (-1, -1), 10),
@@ -1382,7 +1382,7 @@ def build_comprehensive_report_pdf(
                 )
 
             table = _data_table(
-                data, widths, header_background=BRAND_600, row_padding=8
+                data, widths, header_background=PRIMARY_SOFT, row_padding=8
             )
             total_incl = float(
                 group.get("total_incl") or group.get("total") or 0.0
@@ -1445,8 +1445,8 @@ def build_comprehensive_report_pdf(
         grand_total.setStyle(
             TableStyle(
                 [
-                    ("BACKGROUND", (0, 0), (-1, -1), BRAND_800),
-                    ("BOX", (0, 0), (-1, -1), 0.8, BRAND_800),
+                    ("BACKGROUND", (0, 0), (-1, -1), ACCENT_SOFT),
+                    ("BOX", (0, 0), (-1, -1), 0.8, ACCENT),
                     ("LINEABOVE", (0, 0), (-1, 0), 3, ACCENT),
                     ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                     ("TOPPADDING", (0, 0), (-1, -1), 9),
