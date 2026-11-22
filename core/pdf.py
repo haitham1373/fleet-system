@@ -1311,9 +1311,9 @@ def build_comprehensive_report_pdf(
         flowables.append(empty_card)
     else:
         # الترتيب المعروض من اليمين لليسار: الرقم، التاريخ، الورشة، نوع العمل،
-        # بدون ضريبة، شامل الضريبة، الحالة. والقائمة التالية مرتبة من اليسار لليمين.
+        # بدون ضريبة، شامل الضريبة، الضريبة. والقائمة التالية من اليسار لليمين.
         headers = [
-            "الحالة",
+            "الضريبة",
             "شامل الضريبة",
             "بدون ضريبة",
             "نوع العمل",
@@ -1350,9 +1350,12 @@ def build_comprehensive_report_pdf(
             for row in group.get("rows", []):
                 cost_incl = float(row.get("cost_incl") or row.get("cost") or 0)
                 cost_excl = float(row.get("cost_excl") or cost_incl)
+                tax_value = max(cost_incl - cost_excl, 0.0)
                 data.append(
                     [
-                        _status_paragraph(row.get("status"), styles),
+                        Paragraph(
+                            rtl(f"{tax_value:,.1f} ريال"), styles["table_cell"]
+                        ),
                         Paragraph(
                             rtl(f"{cost_incl:,.1f} ريال"),
                             styles["table_cell"],
