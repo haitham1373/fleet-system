@@ -129,8 +129,9 @@ COMPANY_PROFILES: dict[str, CompanyProfile] = {
         name_en_line2="",
         tagline=COMPANY_TAGLINE,
         logo_files=(
-            BASE_DIR / "Deafah.jpeg",
+            BASE_DIR / "Deafah.png",
             HOSPITALITY_LOGO_PATH,
+            BASE_DIR / "Deafah.jpeg",
             BASE_DIR / "logo_hospitality.png",
         ),
         footer_ar=(
@@ -637,6 +638,22 @@ def _logo_path(profile: CompanyProfile | None = None) -> Path | None:
     return None
 
 
+def _logo_image(path: Path, max_side: float) -> Image:
+    """يحجم الشعار داخل مربع مع الحفاظ على نسبته الأصلية (بدون تشويه)."""
+    image = Image(str(path))
+    width = float(image.imageWidth or max_side)
+    height = float(image.imageHeight or max_side)
+    if width <= 0 or height <= 0:
+        width = height = max_side
+    if width >= height:
+        image.drawWidth = max_side
+        image.drawHeight = max_side * height / width
+    else:
+        image.drawHeight = max_side
+        image.drawWidth = max_side * width / height
+    return image
+
+
 def _header(
     styles: dict[str, ParagraphStyle],
     *,
@@ -660,10 +677,7 @@ def _header(
     logo: object = ""
     path = _logo_path(active)
     if path is not None:
-        image = Image(str(path))
-        image.drawWidth = 56
-        image.drawHeight = 56
-        logo = image
+        logo = _logo_image(path, 56)
 
     identity = Table(
         [[english, logo, [arabic, arabic_tag]]],
@@ -1024,10 +1038,7 @@ def _manifest_header(
     logo: object = ""
     path = _logo_path()
     if path is not None:
-        image = Image(str(path))
-        image.drawWidth = 50
-        image.drawHeight = 50
-        logo = image
+        logo = _logo_image(path, 50)
 
     identity = Table(
         [[english, logo, arabic]],
