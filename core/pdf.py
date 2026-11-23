@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import io
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from xml.sax.saxutils import escape as xml_escape
@@ -83,6 +84,66 @@ FOOTER_EN = (
     "+966 2 5771177 – Fax : +966 2 5729455 – P.O.Box : 5941"
 )
 FOOTER_EMAIL = "broujalalam@hotmail.com"
+
+
+# ---------------------------------------------------------------------------
+# هويات الشركات التي يمكن إصدار التقرير الشامل باسمها
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class CompanyProfile:
+    key: str
+    label: str
+    name_ar: str
+    name_ar_line2: str
+    name_en: str
+    name_en_line2: str
+    tagline: str
+    logo_files: tuple[Path, ...]
+    footer_ar: str
+    footer_en: str
+    footer_email: str
+
+
+HOSPITALITY_LOGO_PATH = BASE_DIR / "hospitality_logo.png"
+
+COMPANY_PROFILES: dict[str, CompanyProfile] = {
+    "burooj": CompanyProfile(
+        key="burooj",
+        label="شركة بروج العالم للنقل",
+        name_ar=COMPANY_NAME_AR,
+        name_ar_line2=COMPANY_NAME_AR_LINE2,
+        name_en=COMPANY_NAME_EN,
+        name_en_line2=COMPANY_NAME_EN_LINE2,
+        tagline=COMPANY_TAGLINE,
+        logo_files=(LOGO_CIRCLE_PATH, LOGO_PATH),
+        footer_ar=FOOTER_AR,
+        footer_en=FOOTER_EN,
+        footer_email=FOOTER_EMAIL,
+    ),
+    "hospitality": CompanyProfile(
+        key="hospitality",
+        label="مجموعة الضيافة العالمية",
+        name_ar="مجموعة الضيافة العالمية",
+        name_ar_line2="",
+        name_en="Global Hospitality Group",
+        name_en_line2="",
+        tagline=COMPANY_TAGLINE,
+        logo_files=(HOSPITALITY_LOGO_PATH, BASE_DIR / "logo_hospitality.png"),
+        footer_ar="مجموعة الضيافة العالمية",
+        footer_en="Global Hospitality Group",
+        footer_email="",
+    ),
+}
+
+DEFAULT_COMPANY_KEY = "burooj"
+
+
+def company_profile(key: str | CompanyProfile | None = None) -> CompanyProfile:
+    """يعيد هوية الشركة المطلوبة، ويرجع لبروج عند أي قيمة غير معروفة."""
+    if isinstance(key, CompanyProfile):
+        return key
+    return COMPANY_PROFILES.get(str(key or ""), COMPANY_PROFILES[DEFAULT_COMPANY_KEY])
+
 
 _FONT_CACHE: tuple[str, str] | None = None
 
@@ -558,8 +619,9 @@ def _styles() -> dict[str, ParagraphStyle]:
 # ---------------------------------------------------------------------------
 # مكوّنات مشتركة
 # ---------------------------------------------------------------------------
-def _logo_path() -> Path | None:
-    for candidate in (LOGO_CIRCLE_PATH, LOGO_PATH):
+def _logo_path(profile: CompanyProfile | None = None) -> Path | None:
+    active = profile or company_profile()
+    for candidate in active.logo_files:
         if candidate.is_file():
             return candidate
     return None
@@ -571,20 +633,22 @@ def _header(
     title: str,
     subtitle: str,
     reference: str,
+    profile: CompanyProfile | None = None,
 ) -> list:
     """يبني رأس التقرير: شريط هوية + بطاقة عنوان بلمسة ذهبية."""
-    arabic = Paragraph(
-        f"{rtl(COMPANY_NAME_AR)}<br/>{rtl(COMPANY_NAME_AR_LINE2)}",
-        styles["brand_ar"],
-    )
-    arabic_tag = Paragraph(rtl(COMPANY_TAGLINE), styles["brand_ar_small"])
-    english = Paragraph(
-        f"{COMPANY_NAME_EN}<br/>{COMPANY_NAME_EN_LINE2}",
-        styles["brand_en"],
-    )
+    active = profile or company_profile()
+    arabic_lines = [rtl(active.name_ar)]
+    if active.name_ar_line2:
+        arabic_lines.append(rtl(active.name_ar_line2))
+    arabic = Paragraph("<br/>".join(arabic_lines), styles["brand_ar"])
+    arabic_tag = Paragraph(rtl(active.tagline), styles["brand_ar_small"])
+    english_lines = [active.name_en]
+    if active.name_en_line2:
+        english_lines.append(active.name_en_line2)
+    english = Paragraph("<br/>".join(english_lines), styles["brand_en"])
 
     logo: object = ""
-    path = _logo_path()
+    path = _logo_path(active)
     if path is not None:
         image = Image(str(path))
         image.drawWidth = 56
@@ -650,12 +714,21 @@ def _header(
 FOOTER_RESERVED = 46  # المساحة المحجوزة أسفل كل صفحة للتذييل (بالنقاط)
 
 
-def _footer_flowables(styles: dict[str, ParagraphStyle]) -> list[Paragraph]:
+def _footer_flowables(
+    styles: dict[str, ParagraphStyle],
+    profile: CompanyProfile | None = None,
+) -> list[Paragraph]:
     """فقرات تذييل التقرير (بيانات الشركة) التي تُرسم أسفل كل صفحة."""
+    active = profile or company_profile()
+    entries = [
+        (rtl(active.footer_ar), "footer_ar"),
+        (active.footer_en, "footer_en"),
+        (active.footer_email, "footer_en"),
+    ]
     return [
-        Paragraph(rtl(FOOTER_AR), styles["footer_ar"]),
-        Paragraph(FOOTER_EN, styles["footer_en"]),
-        Paragraph(FOOTER_EMAIL, styles["footer_en"]),
+        Paragraph(text, styles[style])
+        for text, style in entries
+        if str(text).strip()
     ]
 
 
@@ -677,9 +750,12 @@ def _frame_canvas(canvas, doc) -> None:
     canvas.restoreState()
 
 
-def _footer_callback(styles: dict[str, ParagraphStyle]):
+def _footer_callback(
+    styles: dict[str, ParagraphStyle],
+    profile: CompanyProfile | None = None,
+):
     """ينشئ دالة ترسم تذييل الشركة ورقم الصفحة أسفل كل صفحة."""
-    paragraphs = _footer_flowables(styles)
+    paragraphs = _footer_flowables(styles, profile)
 
     def draw_footer(canvas, doc) -> None:
         canvas.saveState()
@@ -887,7 +963,9 @@ def _build_document(
     flowables: list,
     title: str,
     styles: dict[str, ParagraphStyle],
+    profile: CompanyProfile | None = None,
 ) -> bytes:
+    active = profile or company_profile()
     buffer = io.BytesIO()
     document = SimpleDocTemplate(
         buffer,
@@ -897,9 +975,9 @@ def _build_document(
         topMargin=MARGIN_Y,
         bottomMargin=MARGIN_Y + FOOTER_RESERVED,
         title=title,
-        author=COMPANY_NAME_AR,
+        author=active.name_ar,
     )
-    footer = _footer_callback(styles)
+    footer = _footer_callback(styles, active)
 
     def decorate_page(canvas, doc) -> None:
         """يرسم شريط الهوية ثم التذييل في كل صفحة."""
@@ -1241,8 +1319,10 @@ def build_comprehensive_report_pdf(
     groups: list[dict],
     total_cost: float,
     total_cost_excl: float | None = None,
+    company: str | CompanyProfile | None = None,
 ) -> bytes:
-    """يبني التقرير الشامل لصيانة الأسطول بالهوية البصرية الجديدة."""
+    """يبني التقرير الشامل لصيانة الأسطول بهوية الشركة المختارة."""
+    active = company_profile(company)
     styles = _styles()
     _, bold_font = register_fonts()
     total_excl = total_cost if total_cost_excl is None else total_cost_excl
@@ -1257,6 +1337,7 @@ def build_comprehensive_report_pdf(
         title="",
         subtitle="ملخص المصروفات وأعمال الصيانة للمركبات والبنود المختارة",
         reference="",
+        profile=active,
     )
     meta_fields = [
         ("فترة التقرير:", f"من {ltr(start_date)} إلى {ltr(end_date)}"),
@@ -1495,4 +1576,6 @@ def build_comprehensive_report_pdf(
         )
         flowables.append(approval)
 
-    return _build_document(flowables, "التقرير الشامل لصيانة الأسطول", styles)
+    return _build_document(
+        flowables, "التقرير الشامل لصيانة الأسطول", styles, profile=active
+    )

@@ -43,7 +43,23 @@ with st.expander("🔍 خيارات تصفية التقرير الشامل", exp
         help="اختر نوعاً واحداً أو أكثر. اترك القائمة فارغة لعرض كل الأنواع.",
         placeholder="كل الأنواع",
     )
-    
+
+    company_keys = list(pdf.COMPANY_PROFILES)
+    company_labels = [
+        pdf.COMPANY_PROFILES[key].label for key in company_keys
+    ]
+
+    def _reset_company_report() -> None:
+        st.session_state["comprehensive_report_ready"] = False
+
+    selected_company_label = st.selectbox(
+        "اسم الشركة في التقرير",
+        company_labels,
+        key="rep_company",
+        on_change=_reset_company_report,
+    )
+    selected_company = company_keys[company_labels.index(selected_company_label)]
+
     generate_btn = st.button(
         "📄 تجهيز التقرير الشامل للطباعة",
         type="primary",
@@ -147,10 +163,11 @@ if generate_btn:
         groups=groups,
         total_cost=total_fleet_cost,
         total_cost_excl=total_fleet_cost_excl,
+        company=selected_company,
     )
 
     st.session_state["comprehensive_report_name"] = (
-        f"fleet_comprehensive_report_{datetime.now():%Y%m%d_%H%M%S}.pdf"
+        f"fleet_comprehensive_report_{selected_company}_{datetime.now():%Y%m%d_%H%M%S}.pdf"
     )
     st.session_state["comprehensive_report_bytes"] = report_bytes
     st.session_state["comprehensive_report_ready"] = True
