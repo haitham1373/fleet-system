@@ -125,12 +125,22 @@ COMPANY_PROFILES: dict[str, CompanyProfile] = {
         label="مجموعة الضيافة العالمية",
         name_ar="مجموعة الضيافة العالمية",
         name_ar_line2="",
-        name_en="Global Hospitality Group",
+        name_en="Deafah Group",
         name_en_line2="",
         tagline=COMPANY_TAGLINE,
-        logo_files=(HOSPITALITY_LOGO_PATH, BASE_DIR / "logo_hospitality.png"),
-        footer_ar="مجموعة الضيافة العالمية",
-        footer_en="Global Hospitality Group",
+        logo_files=(
+            BASE_DIR / "Deafah.jpeg",
+            HOSPITALITY_LOGO_PATH,
+            BASE_DIR / "logo_hospitality.png",
+        ),
+        footer_ar=(
+            "مكة المكرمة – تلفون : +966 2 5771177 – فاكس : +966 2 5729455 "
+            "– ص.ب : 5941 – الحجز والمبيعات : +966 2 5729355"
+        ),
+        footer_en=(
+            "MAKKAH – TEL : +966 2 5771177 – FAX : +966 2 5729455 "
+            "– P.O.BOX : 5941 – RESERVATION & SALES : +966 2 5729355"
+        ),
         footer_email="",
     ),
 }
